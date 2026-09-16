@@ -1,0 +1,882 @@
+/* =====================================================
+   REPAIR JOB PAGE
+===================================================== */
+
+.repair-page {
+    padding: 32px 40px 60px;
+}
+
+
+/* =====================================================
+   HEADER
+===================================================== */
+
+.repair-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 28px;
+}
+
+.repair-header h1 {
+    margin: 0;
+    font-size: 30px;
+    color: #111827;
+}
+
+.repair-header p {
+    margin-top: 7px;
+    color: #718096;
+    font-size: 15px;
+}
+
+
+/* =====================================================
+   ADD BUTTON
+===================================================== */
+
+.repair-add-btn {
+    min-width: 190px;
+
+    border: none;
+    background: #111827;
+    color: #ffffff;
+
+    padding: 13px 20px;
+    border-radius: 8px;
+
+    font-size: 15px;
+    font-weight: 600;
+
+    cursor: pointer;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+
+    transition: 0.2s;
+}
+
+
+/* =====================================================
+   ALERT
+===================================================== */
+
+.repair-alert {
+    padding: 13px 18px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+.repair-alert.success {
+    background: #dcfce7;
+    border: 1px solid #bbf7d0;
+    color: #166534;
+}
+
+.repair-alert.error {
+    background: #fee2e2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+}
+
+
+/* =====================================================
+   TOOLBAR
+===================================================== */
+
+.repair-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 22px;
+}
+
+.repair-search {
+    width: 505px;
+    height: 48px;
+
+    display: flex;
+    align-items: center;
+
+    background: #ffffff;
+
+    border: 1px solid #dbe3ef;
+    border-radius: 14px;
+
+    padding: 0 16px;
+
+    gap: 10px;
+}
+
+.repair-search span {
+    font-size: 17px;
+    color: #94a3b8;
+}
+
+.repair-search input {
+    width: 100%;
+    border: none;
+    outline: none;
+    font-size: 15px;
+    color: #334155;
+}
+
+.repair-search:focus-within {
+    border-color: #94a3b8;
+}
+
+
+/* =====================================================
+   STATUS FILTER
+===================================================== */
+
+.repair-status-filter {
+    height: 48px;
+    min-width: 180px;
+
+    border: 1px solid #dbe3ef;
+    border-radius: 10px;
+
+    background: #ffffff;
+
+    padding: 0 14px;
+
+    color: #334155;
+    font-size: 14px;
+
+    outline: none;
+}
+
+
+/* =====================================================
+   CLEAR
+===================================================== */
+
+.clear-search {
+    color: #64748b;
+    font-size: 14px;
+    text-decoration: none;
+}
+
+.clear-search:hover {
+    color: #111827;
+}
+
+
+/* =====================================================
+   GRID
+===================================================== */
+
+.repair-grid {
+    display: grid;
+
+    grid-template-columns:
+        repeat(2, minmax(350px, 1fr));
+
+    gap: 18px;
+}
+
+
+/* =====================================================
+   CARD
+===================================================== */
+
+.repair-card {
+    background: #ffffff;
+
+    border: 1px solid #dbe3ef;
+
+    border-radius: 18px;
+
+    padding: 22px;
+
+    box-shadow:
+        0 2px 5px rgba(15, 23, 42, 0.04);
+
+    transition:
+        transform 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+.repair-card:hover {
+    transform: translateY(-2px);
+
+    box-shadow:
+        0 8px 22px rgba(15, 23, 42, 0.07);
+}
+
+
+/* =====================================================
+   CARD HEADER
+===================================================== */
+
+.repair-card-header {
+    display: flex;
+
+    justify-content: space-between;
+
+    align-items: flex-start;
+
+    gap: 15px;
+}
+
+.repair-title {
+    display: flex;
+
+    align-items: center;
+
+    gap: 12px;
+}
+
+.repair-icon {
+    width: 44px;
+    height: 44px;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 11px;
+
+    background: #f3e8ff;
+
+    font-size: 20px;
+}
+
+.repair-title strong {
+    display: block;
+
+    color: #0f172a;
+
+    font-size: 15px;
+}
+
+.repair-title span {
+    display: block;
+
+    margin-top: 4px;
+
+    color: #64748b;
+
+    font-size: 13px;
+}
+
+
+/* =====================================================
+   BADGES
+===================================================== */
+
+.repair-badges {
+    display: flex;
+
+    align-items: center;
+
+    gap: 8px;
+
+    flex-wrap: wrap;
+
+    justify-content: flex-end;
+}
+
+.priority-badge,
+.status-badge {
+    padding: 5px 10px;
+
+    border-radius: 999px;
+
+    font-size: 12px;
+
+    white-space: nowrap;
+}
+
+
+/* Priority */
+
+.priority-medium {
+    color: #d97706;
+
+    background: #fffbeb;
+
+    border: 1px solid #fde68a;
+}
+
+
+/* Status */
+
+.status-waiting {
+    color: #64748b;
+
+    background: #f8fafc;
+
+    border: 1px solid #cbd5e1;
+}
+
+.status-assigned {
+    color: #2563eb;
+
+    background: #eff6ff;
+
+    border: 1px solid #bfdbfe;
+}
+
+.status-in_progress {
+    color: #d97706;
+
+    background: #fffbeb;
+
+    border: 1px solid #fde68a;
+}
+
+.status-completed {
+    color: #15803d;
+
+    background: #f0fdf4;
+
+    border: 1px solid #bbf7d0;
+}
+
+.status-invoiced {
+    color: #7c3aed;
+
+    background: #f5f3ff;
+
+    border: 1px solid #ddd6fe;
+}
+
+
+/* =====================================================
+   MAIN INFO
+===================================================== */
+
+.repair-main-info {
+    margin-top: 20px;
+}
+
+.repair-main-info h3 {
+    margin: 0;
+
+    color: #334155;
+
+    font-size: 15px;
+
+    font-weight: 500;
+
+    line-height: 1.6;
+}
+
+.repair-main-info p {
+    margin-top: 8px;
+
+    color: #64748b;
+
+    font-size: 13px;
+
+    line-height: 1.6;
+}
+
+.repair-main-info p strong {
+    color: #475569;
+}
+
+
+/* =====================================================
+   META
+===================================================== */
+
+.repair-meta {
+    display: flex;
+
+    flex-wrap: wrap;
+
+    gap: 14px;
+
+    margin-top: 13px;
+
+    color: #64748b;
+
+    font-size: 13px;
+}
+
+
+/* =====================================================
+   TECHNICIAN
+===================================================== */
+
+.repair-technician {
+    margin-top: 16px;
+
+    padding-top: 13px;
+
+    border-top: 1px solid #edf2f7;
+
+    color: #64748b;
+
+    font-size: 13px;
+}
+
+.repair-technician strong {
+    color: #334155;
+}
+
+
+/* =====================================================
+   INSPECTION
+===================================================== */
+
+.inspection-preview {
+    margin-top: 12px;
+
+    padding: 10px 12px;
+
+    background: #f8fafc;
+
+    border-radius: 8px;
+
+    color: #64748b;
+
+    font-size: 13px;
+
+    line-height: 1.5;
+}
+
+.inspection-preview strong {
+    color: #334155;
+}
+
+
+/* =====================================================
+   ACTIONS
+===================================================== */
+
+.repair-actions {
+    display: flex;
+
+    align-items: center;
+
+    gap: 20px;
+
+    margin-top: 16px;
+
+    padding-top: 14px;
+
+    border-top: 1px solid #edf2f7;
+}
+
+.repair-actions form {
+    margin: 0;
+}
+
+.repair-action {
+    border: none;
+
+    background: transparent;
+
+    cursor: pointer;
+
+    padding: 0;
+
+    font-size: 13px;
+}
+
+.repair-action.edit {
+    color: #64748b;
+}
+
+.repair-action.edit:hover {
+    color: #0f172a;
+}
+
+.repair-action.complete {
+    color: #059669;
+}
+
+.repair-action.complete:hover {
+    color: #047857;
+}
+
+
+/* =====================================================
+   EMPTY
+===================================================== */
+
+.repair-empty {
+    grid-column: 1 / -1;
+
+    background: #ffffff;
+
+    border: 1px solid #dbe3ef;
+
+    border-radius: 18px;
+
+    padding: 70px 20px;
+
+    text-align: center;
+}
+
+.empty-icon {
+    font-size: 40px;
+
+    margin-bottom: 12px;
+}
+
+.repair-empty h3 {
+    margin: 0;
+
+    color: #334155;
+}
+
+.repair-empty p {
+    margin-top: 7px;
+
+    color: #64748b;
+}
+
+
+/* =====================================================
+   MODAL OVERLAY
+===================================================== */
+
+.modal-overlay {
+    position: fixed;
+
+    inset: 0;
+
+    display: none;
+
+    align-items: center;
+
+    justify-content: center;
+
+    padding: 20px;
+
+    background: rgba(15, 23, 42, 0.72);
+
+    z-index: 9999;
+}
+
+.modal-overlay.show {
+    display: flex;
+}
+
+
+/* =====================================================
+   MODAL
+===================================================== */
+
+.repair-modal {
+    width: 100%;
+
+    max-width: 560px;
+
+    max-height: 90vh;
+
+    overflow-y: auto;
+
+    background: #ffffff;
+
+    border-radius: 14px;
+
+    padding: 28px;
+
+    box-sizing: border-box;
+
+    box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.25);
+}
+
+
+/* =====================================================
+   MODAL HEADER
+===================================================== */
+
+.modal-header {
+    display: flex;
+
+    justify-content: space-between;
+
+    align-items: flex-start;
+
+    margin-bottom: 24px;
+}
+
+.modal-header h2 {
+    margin: 0;
+
+    color: #0f172a;
+
+    font-size: 22px;
+}
+
+.modal-header p {
+    margin-top: 5px;
+
+    color: #64748b;
+
+    font-size: 13px;
+}
+
+.modal-close {
+    border: none;
+
+    background: transparent;
+
+    color: #64748b;
+
+    font-size: 27px;
+
+    cursor: pointer;
+}
+
+.modal-close:hover {
+    color: #0f172a;
+}
+
+
+/* =====================================================
+   FORM
+===================================================== */
+
+.form-group {
+    margin-bottom: 17px;
+}
+
+.form-group label {
+    display: block;
+
+    margin-bottom: 7px;
+
+    color: #1e293b;
+
+    font-size: 14px;
+
+    font-weight: 500;
+}
+
+.form-group label span {
+    color: #dc2626;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+
+    box-sizing: border-box;
+
+    border: 1px solid #dbe3ef;
+
+    border-radius: 9px;
+
+    background: #ffffff;
+
+    padding: 11px 13px;
+
+    color: #334155;
+
+    font-family: inherit;
+
+    font-size: 14px;
+
+    outline: none;
+}
+
+.form-group input,
+.form-group select {
+    height: 44px;
+}
+
+.form-group textarea {
+    resize: vertical;
+
+    min-height: 80px;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    border-color: #64748b;
+
+    box-shadow:
+        0 0 0 3px rgba(100, 116, 139, 0.08);
+}
+
+.form-group select:disabled {
+    background: #f8fafc;
+
+    color: #94a3b8;
+
+    cursor: not-allowed;
+}
+
+
+/* =====================================================
+   FORM ROW
+===================================================== */
+
+.form-row {
+    display: grid;
+
+    grid-template-columns: 1fr 1fr;
+
+    gap: 14px;
+}
+
+
+/* =====================================================
+   HELP
+===================================================== */
+
+.form-help {
+    display: block;
+
+    margin-top: 6px;
+
+    color: #94a3b8;
+
+    font-size: 12px;
+
+    line-height: 1.5;
+}
+
+
+/* =====================================================
+   WORKFLOW INFO
+===================================================== */
+
+.workflow-info {
+    padding: 13px 15px;
+
+    margin-top: 8px;
+
+    margin-bottom: 5px;
+
+    background: #f8fafc;
+
+    border: 1px solid #e2e8f0;
+
+    border-radius: 10px;
+
+    color: #64748b;
+
+    font-size: 12px;
+
+    line-height: 1.6;
+}
+
+.workflow-info strong {
+    display: block;
+
+    margin-bottom: 4px;
+
+    color: #334155;
+}
+
+.workflow-info p {
+    margin: 0;
+}
+
+
+/* =====================================================
+   ACTIONS
+===================================================== */
+
+.modal-actions {
+    display: flex;
+
+    justify-content: flex-end;
+
+    gap: 10px;
+
+    margin-top: 24px;
+}
+
+.btn-cancel,
+.btn-submit {
+    height: 42px;
+
+    padding: 0 19px;
+
+    border-radius: 8px;
+
+    cursor: pointer;
+
+    font-size: 14px;
+}
+
+.btn-cancel {
+    border: 1px solid #dbe3ef;
+
+    background: #ffffff;
+
+    color: #475569;
+}
+
+.btn-cancel:hover {
+    background: #f8fafc;
+}
+
+.btn-submit {
+    border: none;
+
+    background: #0f172a;
+
+    color: #ffffff;
+}
+
+.btn-submit:hover {
+    background: #1e293b;
+}
+
+
+/* =====================================================
+   RESPONSIVE
+===================================================== */
+
+@media (max-width: 1100px) {
+
+    .repair-grid {
+        grid-template-columns: 1fr;
+    }
+
+}
+
+
+@media (max-width: 750px) {
+
+    .repair-page {
+        padding: 25px 20px 50px;
+    }
+
+    .repair-header {
+        flex-direction: column;
+
+        gap: 18px;
+    }
+
+    .repair-add-btn {
+        width: 100%;
+    }
+
+    .repair-toolbar {
+        flex-direction: column;
+
+        align-items: stretch;
+    }
+
+    .repair-search {
+        width: 100%;
+    }
+
+    .repair-status-filter {
+        width: 100%;
+    }
+
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+
+}

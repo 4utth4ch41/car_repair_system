@@ -1,0 +1,682 @@
+/* =========================================================
+   CUSTOMER / VEHICLE PAGE
+   ========================================================= */
+
+.customer-page {
+    padding: 28px 42px 50px;
+}
+
+/* ---------- Page Header ---------- */
+
+.customer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 32px;
+}
+
+.customer-header h1 {
+    font-size: 30px;
+    color: #111827;
+    margin-bottom: 8px;
+}
+
+.customer-header p {
+    color: #718096;
+    font-size: 16px;
+}
+
+/* ---------- Primary Button ---------- */
+
+.btn-primary {
+    border: none;
+    background: #111827;
+    color: #ffffff;
+    padding: 13px 20px;
+    border-radius: 8px;
+    font-size: 15px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: 0.2s;
+}
+
+.btn-primary:hover {
+    background: #000000;
+}
+
+.btn-primary .plus {
+    font-size: 22px;
+    line-height: 1;
+}
+
+/* ---------- Tabs ---------- */
+
+.customer-tabs {
+    display: flex;
+    gap: 28px;
+    border-bottom: 1px solid #e2e8f0;
+    margin-bottom: 28px;
+}
+
+.customer-tab {
+    border: none;
+    background: transparent;
+    padding: 0 22px 15px;
+    color: #718096;
+    font-size: 16px;
+    cursor: pointer;
+    position: relative;
+}
+
+.customer-tab.active {
+    color: #f59e0b;
+}
+
+.customer-tab.active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    background: #f59e0b;
+}
+
+/* ---------- Search ---------- */
+
+.customer-search {
+    width: 605px;
+    max-width: 100%;
+    position: relative;
+    margin-bottom: 22px;
+}
+
+.customer-search input {
+    width: 100%;
+    height: 56px;
+    border: 1px solid #dbe3ec;
+    border-radius: 16px;
+    padding: 0 20px 0 48px;
+    font-size: 16px;
+    outline: none;
+    background: #ffffff;
+}
+
+.customer-search input:focus {
+    border-color: #aebed4;
+}
+
+.search-icon {
+    position: absolute;
+    left: 20px;
+    top: 17px;
+    color: #94a3b8;
+    font-size: 20px;
+}
+
+/* ---------- Customer Grid ---------- */
+
+.customer-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 22px;
+}
+
+/* ---------- Customer Card ---------- */
+
+.customer-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    padding: 26px;
+    box-shadow: 0 2px 5px rgba(15, 23, 42, 0.04);
+    transition: 0.2s;
+}
+
+.customer-card:hover {
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.customer-top {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.customer-avatar {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: #f59e0b;
+    color: #ffffff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 22px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.customer-name {
+    font-size: 18px;
+    font-weight: 700;
+    color: #111827;
+}
+
+.customer-phone {
+    color: #718096;
+    margin-top: 5px;
+    font-size: 14px;
+}
+
+.customer-address {
+    color: #64748b;
+    font-size: 14px;
+    margin-bottom: 18px;
+    line-height: 1.6;
+}
+
+/* ---------- Vehicles inside Customer Card ---------- */
+
+.vehicle-section {
+    border-top: 1px solid #e2e8f0;
+    padding-top: 18px;
+}
+
+.vehicle-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 13px;
+}
+
+.vehicle-header strong {
+    font-size: 14px;
+    color: #64748b;
+    text-transform: uppercase;
+}
+
+.add-vehicle-btn {
+    border: none;
+    background: transparent;
+    color: #f59e0b;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.add-vehicle-btn:hover {
+    text-decoration: underline;
+}
+
+.vehicle-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #64748b;
+    font-size: 14px;
+    padding: 7px 0;
+}
+
+.vehicle-icon {
+    color: #94a3b8;
+}
+
+.no-vehicle {
+    color: #94a3b8;
+    font-size: 14px;
+    padding: 5px 0;
+}
+
+/* ---------- Vehicle Table ---------- */
+
+.vehicle-table-container {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 2px 5px rgba(15, 23, 42, 0.04);
+}
+
+.vehicle-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.vehicle-table th {
+    text-align: left;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    padding: 18px 28px;
+}
+
+.vehicle-table td {
+    padding: 20px 28px;
+    border-top: 1px solid #edf2f7;
+    color: #475569;
+}
+
+.vehicle-table tr:hover {
+    background: #fafafa;
+}
+
+.license-plate {
+    font-weight: 700;
+    color: #111827;
+}
+
+/* ---------- Empty State ---------- */
+
+.empty-state {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    padding: 60px 20px;
+    text-align: center;
+    color: #94a3b8;
+}
+
+/* =========================================================
+   MODAL
+   ========================================================= */
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 20px;
+}
+
+.modal-overlay.show {
+    display: flex;
+}
+
+.modal {
+    width: 100%;
+    max-width: 600px;
+    background: #ffffff;
+    border-radius: 14px;
+    padding: 32px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 28px;
+}
+
+.modal-header h2 {
+    font-size: 24px;
+    color: #111827;
+}
+
+.modal-close {
+    border: none;
+    background: transparent;
+    font-size: 28px;
+    color: #64748b;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: #111827;
+}
+
+/* ---------- Form ---------- */
+
+.form-group {
+    margin-bottom: 18px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 15px;
+    color: #1e293b;
+    font-weight: 500;
+}
+
+.form-group label span {
+    color: #ef4444;
+}
+
+.form-group input,
+.form-group textarea,
+.form-group select {
+    width: 100%;
+    padding: 13px 14px;
+    border: 1px solid #dbe3ec;
+    border-radius: 8px;
+    font-size: 15px;
+    outline: none;
+    font-family: inherit;
+    background: #ffffff;
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 90px;
+}
+
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+    border-color: #94a3b8;
+    box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15);
+}
+
+/* ---------- Form Buttons ---------- */
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 28px;
+}
+
+.btn-cancel {
+    border: 1px solid #dbe3ec;
+    background: #ffffff;
+    color: #334155;
+    padding: 12px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 15px;
+}
+
+.btn-cancel:hover {
+    background: #f8fafc;
+}
+
+.btn-submit {
+    border: none;
+    background: #111827;
+    color: #ffffff;
+    padding: 12px 22px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 15px;
+}
+
+.btn-submit:hover {
+    background: #000000;
+}
+
+/* ---------- Alert ---------- */
+
+.alert {
+    padding: 14px 18px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+.alert-success {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #bbf7d0;
+}
+
+.alert-error {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 1200px) {
+    .customer-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 800px) {
+    .customer-page {
+        padding: 22px;
+    }
+
+    .customer-header {
+        flex-direction: column;
+        gap: 18px;
+    }
+
+    .customer-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .vehicle-table-container {
+        overflow-x: auto;
+    }
+
+    .vehicle-table {
+        min-width: 700px;
+    }
+}
+
+/* =========================================================
+   CUSTOMER CARD HEADER
+========================================================= */
+
+.customer-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+
+    gap: 15px;
+}
+
+
+/* =========================================================
+   EDIT CUSTOMER BUTTON
+========================================================= */
+
+.edit-customer-btn {
+    width: 38px;
+    height: 38px;
+
+    border: none;
+
+    background: #f1f5f9;
+
+    border-radius: 8px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    cursor: pointer;
+
+    font-size: 16px;
+
+    transition: all 0.2s ease;
+
+    flex-shrink: 0;
+}
+
+.edit-customer-btn:hover {
+    background: #e2e8f0;
+
+    transform: translateY(-1px);
+}
+
+/* =========================================================
+   SEARCH ROW / CLEAR SEARCH
+========================================================= */
+
+.customer-search-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 22px;
+}
+
+.customer-search-row .customer-search {
+    margin-bottom: 0;
+}
+
+
+/* ---------- Clear Search Button ---------- */
+
+.clear-search-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    height: 44px;
+    padding: 0 16px;
+
+    border: 1px solid #dbe3ec;
+    border-radius: 8px;
+
+    background: #ffffff;
+    color: #64748b;
+
+    font-size: 14px;
+    font-weight: 500;
+
+    text-decoration: none;
+
+    white-space: nowrap;
+
+    cursor: pointer;
+
+    transition:
+        background 0.2s ease,
+        border-color 0.2s ease,
+        color 0.2s ease;
+}
+
+.clear-search-btn:hover {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    color: #111827;
+}
+
+
+/* =========================================================
+   TOPBAR
+   Override สำหรับหน้า Customer
+========================================================= */
+
+/* ชื่ออู่ */
+.topbar .brand {
+    font-weight: 700;
+    color: #111827;
+}
+
+
+/* กลุ่มชื่อผู้ใช้ + ปุ่มออกจากระบบ */
+.topbar .user-area {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 18px;
+}
+
+
+/* ชื่อผู้ใช้ + Role */
+.topbar .user-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    line-height: 1.35;
+}
+
+
+/* ชื่อ User */
+.topbar .user-info strong {
+    color: #111827;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+
+/* Role */
+.topbar .user-info span {
+    color: #64748b;
+    font-size: 13px;
+}
+
+
+/* ปุ่ม Logout */
+.topbar .logout-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    white-space: nowrap;
+
+    margin: 0;
+
+    text-decoration: none;
+}
+
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+
+@media (max-width: 800px) {
+
+    .customer-search-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .customer-search {
+        width: 100%;
+    }
+
+    .clear-search-btn {
+        width: fit-content;
+    }
+
+    .topbar .user-area {
+        gap: 10px;
+    }
+
+}
+/* =====================================================
+   DELETE BUTTON
+===================================================== */
+
+.delete-customer-btn,
+.delete-vehicle-btn {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 6px 8px;
+    border-radius: 6px;
+}
+
+.delete-customer-btn:hover,
+.delete-vehicle-btn:hover {
+    background: #fee2e2;
+}
+.customer-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.customer-card-header > button {
+    margin-left: 4px;
+}
