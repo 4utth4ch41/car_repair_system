@@ -1,4 +1,11 @@
 <?php
+/*
+ * ภาพรวมการทำงานกับข้อมูลของไฟล์นี้
+ * ข้อมูลแยกเป็น customers กับ vehicles โดย vehicles.customer_id บอกว่ารถเป็นของใคร
+ * ค้นหาลูกค้าจากชื่อ/โทรศัพท์ ส่วนค้นหารถจากทะเบียน/ยี่ห้อ/รุ่น/ชื่อเจ้าของ เป็นคนละ query
+ * หลังดึงรถมา PHP จัดกลุ่มตาม customer_id เพื่อแสดงรถใต้ลูกค้าแต่ละคน ไม่ได้ใช้ SQL GROUP BY
+ * ก่อนลบลูกค้ามีการนับรถที่ผูกอยู่ ถ้ายังมีรถจะไม่ให้ลบลูกค้าในขั้นตอนนี้
+ */
 
 require_once "../../includes/admin_auth.php";
 require_once "../../config/database.php";
@@ -30,6 +37,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 throw new Exception("กรุณากรอกชื่อ-สกุลและเบอร์โทรศัพท์");
             }
 
+            /*
+             * เพิ่มแถวใหม่ลง customers (ลูกค้า)
+             * ค่าหลัง VALUES ต้องตรงกับลำดับคอลัมน์ที่ระบุ ไม่ได้แก้แถวเก่าที่มีอยู่
+             * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+             */
             $sql = "
                 INSERT INTO customers
                 (full_name, phone, address, note)
@@ -37,8 +49,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 (:full_name, :phone, :address, :note)
             ";
 
+            /*
+             * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+             */
             $stmt = $pdo->prepare($sql);
 
+            /*
+             * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+             */
             $stmt->execute([
                 ":full_name" => $full_name,
                 ":phone"     => $phone,
@@ -70,6 +88,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     throw new Exception("กรุณากรอกชื่อ-สกุลและเบอร์โทรศัพท์");
                 }
 
+                /*
+                 * แก้ข้อมูลเดิมใน customers (ลูกค้า) โดยเปลี่ยนเฉพาะคอลัมน์หลัง SET
+                 * เงื่อนไข WHERE ที่ใช้จริง: customer_id = :customer_id
+                 * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+                 */
                 $sql = "
                     UPDATE customers
                     SET
@@ -80,8 +103,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     WHERE customer_id = :customer_id
                 ";
 
+                /*
+                 * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+                 */
                 $stmt = $pdo->prepare($sql);
 
+                /*
+                 * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+                 */
                 $stmt->execute([
                     ":full_name"   => $full_name,
                     ":phone"       => $phone,
@@ -117,6 +146,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 throw new Exception("กรุณากรอกข้อมูลรถที่จำเป็นให้ครบ");
             }
 
+            /*
+             * เพิ่มแถวใหม่ลง vehicles (รถยนต์)
+             * ค่าหลัง VALUES ต้องตรงกับลำดับคอลัมน์ที่ระบุ ไม่ได้แก้แถวเก่าที่มีอยู่
+             * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+             */
             $sql = "
                 INSERT INTO vehicles
                 (
@@ -140,8 +174,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 )
             ";
 
+            /*
+             * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+             */
             $stmt = $pdo->prepare($sql);
 
+            /*
+             * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+             */
             $stmt->execute([
                 ":customer_id"   => $customer_id,
                 ":license_plate" => $license_plate,
@@ -186,6 +226,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 throw new Exception("เลขไมล์ไม่สามารถติดลบได้");
             }
 
+            /*
+             * แก้ข้อมูลเดิมใน vehicles (รถยนต์) โดยเปลี่ยนเฉพาะคอลัมน์หลัง SET
+             * เงื่อนไข WHERE ที่ใช้จริง: vehicle_id = :vehicle_id
+             * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+             */
             $sql = "
                 UPDATE vehicles
                 SET
@@ -198,8 +243,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 WHERE vehicle_id = :vehicle_id
             ";
 
+            /*
+             * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+             */
             $stmt = $pdo->prepare($sql);
 
+            /*
+             * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+             */
             $stmt->execute([
                 ":license_plate" => $license_plate,
                 ":brand"         => $brand,
@@ -239,18 +290,33 @@ if ($action === "delete_customer") {
      * ตรวจสอบก่อนว่าลูกค้ามีรถอยู่หรือไม่
      */
 
+    /*
+     * ตรงนี้อ่านข้อมูลจาก vehicles (รถยนต์)
+     * เงื่อนไข WHERE ที่ใช้จริง: customer_id = :customer_id
+     * COUNT(*) นับแถว ส่วน COUNT(นิพจน์) นับเฉพาะค่าที่ไม่เป็น NULL จึงใช้ CASE แยกนับสถานะได้
+     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+     */
     $checkSql = "
         SELECT COUNT(*)
         FROM vehicles
         WHERE customer_id = :customer_id
     ";
 
+    /*
+     * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+     */
     $checkStmt = $pdo->prepare($checkSql);
 
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
     $checkStmt->execute([
         ":customer_id" => $customer_id
     ]);
 
+    /*
+     * อ่านค่าเดียวจากคอลัมน์แรกของแถวถัดไป เหมาะกับ COUNT / SUM หรือการตรวจว่าพบรหัสหรือไม่
+     */
     $vehicleCount = (int) $checkStmt->fetchColumn();
 
     if ($vehicleCount > 0) {
@@ -277,13 +343,24 @@ if ($action === "delete_vehicle") {
      * ลบข้อมูลรถยนต์
      */
 
+    /*
+     * ลบแถวออกจาก vehicles (รถยนต์) ตามเงื่อนไขด้านล่าง
+     * เงื่อนไข WHERE ที่ใช้จริง: vehicle_id = :vehicle_id
+     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+     */
     $sql = "
         DELETE FROM vehicles
         WHERE vehicle_id = :vehicle_id
     ";
 
+    /*
+     * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+     */
     $stmt = $pdo->prepare($sql);
 
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
     $stmt->execute([
         ":vehicle_id" => $vehicle_id
     ]);
@@ -300,13 +377,24 @@ if ($action === "delete_vehicle") {
      * ลบข้อมูลลูกค้า
      */
 
+    /*
+     * ลบแถวออกจาก customers (ลูกค้า) ตามเงื่อนไขด้านล่าง
+     * เงื่อนไข WHERE ที่ใช้จริง: customer_id = :customer_id
+     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+     */
     $sql = "
         DELETE FROM customers
         WHERE customer_id = :customer_id
     ";
 
+    /*
+     * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+     */
     $stmt = $pdo->prepare($sql);
 
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
     $stmt->execute([
         ":customer_id" => $customer_id
     ]);
@@ -337,6 +425,14 @@ $tab    = $_GET["tab"] ?? "customers";
 
 if ($search !== "") {
 
+    /*
+     * ตรงนี้อ่านข้อมูลจาก customers (ลูกค้า)
+     * เงื่อนไข WHERE ที่ใช้จริง: full_name LIKE :search OR phone LIKE :search 
+     * LIKE ใช้ค้นหาข้อความ ส่วน % ที่ PHP เติมหน้าหลังหมายถึงมีคำนี้อยู่ตรงไหนก็เจอ
+     * เรียงตาม: customer_id DESC
+     * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+     */
     $customerSql = "
         SELECT *
         FROM customers
@@ -346,14 +442,25 @@ if ($search !== "") {
         ORDER BY customer_id DESC
     ";
 
+    /*
+     * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+     */
     $stmt = $pdo->prepare($customerSql);
 
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
     $stmt->execute([
         ":search" => "%" . $search . "%"
     ]);
 
 } else {
 
+    /*
+     * ตรงนี้อ่านข้อมูลจาก customers (ลูกค้า)
+     * เรียงตาม: customer_id DESC
+     * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+     */
     $customerSql = "
         SELECT *
         FROM customers
@@ -363,6 +470,9 @@ if ($search !== "") {
     $stmt = $pdo->query($customerSql);
 }
 
+/*
+ * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+ */
 $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 
@@ -374,6 +484,16 @@ $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 if ($search !== "") {
 
+    /*
+     * ตรงนี้อ่านข้อมูลจาก vehicles (รถยนต์), customers (ลูกค้า)
+     * JOIN / INNER JOIN เอาเฉพาะแถวที่จับคู่ได้ตาม ON เช่น รหัสลูกค้าหรือรหัสรถตรงกัน
+     * เงื่อนไข WHERE ที่ใช้จริง: v.license_plate LIKE :search OR v.brand LIKE :search OR v.model LIKE :search OR
+     * c.full_name LIKE :search 
+     * LIKE ใช้ค้นหาข้อความ ส่วน % ที่ PHP เติมหน้าหลังหมายถึงมีคำนี้อยู่ตรงไหนก็เจอ
+     * เรียงตาม: v.vehicle_id DESC
+     * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+     */
     $vehicleSql = "
         SELECT
             v.*,
@@ -389,14 +509,26 @@ if ($search !== "") {
         ORDER BY v.vehicle_id DESC
     ";
 
+    /*
+     * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+     */
     $stmt = $pdo->prepare($vehicleSql);
 
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
     $stmt->execute([
         ":search" => "%" . $search . "%"
     ]);
 
 } else {
 
+    /*
+     * ตรงนี้อ่านข้อมูลจาก vehicles (รถยนต์), customers (ลูกค้า)
+     * JOIN / INNER JOIN เอาเฉพาะแถวที่จับคู่ได้ตาม ON เช่น รหัสลูกค้าหรือรหัสรถตรงกัน
+     * เรียงตาม: v.vehicle_id DESC
+     * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+     */
     $vehicleSql = "
         SELECT
             v.*,
@@ -410,6 +542,9 @@ if ($search !== "") {
     $stmt = $pdo->query($vehicleSql);
 }
 
+/*
+ * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+ */
 $vehicles = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 
@@ -447,7 +582,7 @@ foreach ($vehicles as $vehicle) {
         content="width=device-width, initial-scale=1.0"
     >
 
-    <title>ข้อมูลลูกค้าและรถยนต์ | P.Chalermchai Car Service</title>
+    <title>ข้อมูลลูกค้าและรถยนต์ | ป.เฉลิมชัย คาร์แคร์ เซอร์วิส</title>
 
 <!-- CSS หลัก -->
 <link
@@ -468,6 +603,11 @@ foreach ($vehicles as $vehicle) {
 >
 
 
+    <link rel="stylesheet" href="../../assets/css/confirmation-modal.css">
+
+    <!-- GARAGE THEME: shared navy, gold and warm cream styles -->
+    <link rel="stylesheet" href="../../assets/css/garage-theme.css">
+
 </head>
 
 <body>
@@ -480,7 +620,9 @@ foreach ($vehicles as $vehicle) {
 
     <!-- ชื่ออู่ -->
     <div class="brand">
-        P.Chalermchai Car Service
+            <!-- BRAND LOGO: original garage identity -->
+            <img class="brand-logo" src="../../assets/img/logo.jpg" alt="" width="48" height="48">
+        ป.เฉลิมชัย คาร์แคร์ เซอร์วิส
     </div>
 
 
@@ -556,19 +698,19 @@ foreach ($vehicles as $vehicle) {
 
         </a>
 
-        <a href="../technician/index.php">
-
-            <span class="menu-icon">👨‍🔧</span>
-
-            <span>จัดการช่าง</span>
-
-        </a>
-
         <a href="../financial/index.php">
 
             <span class="menu-icon">💰</span>
 
             <span>การเงิน</span>
+
+        </a>
+
+        <a href="../technician/index.php">
+
+            <span class="menu-icon">👨‍🔧</span>
+
+            <span>จัดการช่าง</span>
 
         </a>
 
@@ -595,9 +737,14 @@ foreach ($vehicles as $vehicle) {
 
         <!-- PAGE HEADER -->
 
-        <div class="customer-header">
+        <div class="customer-header garage-page-header">
 
             <div>
+
+                <!-- PAGE ICON: decorative icon for this page -->
+                <span class="garage-heading-icon" aria-hidden="true">
+                    <i class="fas fa-users"></i>
+                </span>
 
                 <h1>
                     ข้อมูลลูกค้า / รถยนต์
@@ -817,7 +964,7 @@ foreach ($vehicles as $vehicle) {
                 <?= $customerId ?>,
                 <?= json_encode(
                     $customer["full_name"],
-                    JSON_UNESCAPED_UNICODE
+                    JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
                 ) ?>
             )'
         >
@@ -1008,7 +1155,7 @@ foreach ($vehicles as $vehicle) {
                                         <?= $vehicle["vehicle_id"] ?>,
                                         <?= json_encode(
                                             $vehicle["license_plate"],
-                                            JSON_UNESCAPED_UNICODE
+                                            JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
                                         ) ?>
                                     )'
                                 >
@@ -1880,24 +2027,23 @@ function changeTab(tab) {
 
 function deleteCustomer(customerId, customerName) {
 
-    const confirmed = confirm(
-        "คุณต้องการลบลูกค้า \"" +
-        customerName +
-        "\" หรือไม่?\n\n" +
-        "ระบบจะลบข้อมูลลูกค้าออกจากระบบ"
-    );
+    openConfirmation({
+        title: "ลบข้อมูลลูกค้า",
+        message: "ระบบจะลบข้อมูลลูกค้าออกจากระบบ กรุณาตรวจสอบก่อนยืนยัน",
+        button: "ลบลูกค้า",
+        danger: true,
+        details: {
+            "ชื่อลูกค้า": customerName
+        }
+    }, function () {
 
-    if (!confirmed) {
-        return;
-    }
+        document.getElementById("deleteCustomerId").value =
+            customerId;
 
-
-    document.getElementById("deleteCustomerId").value =
-        customerId;
-
-    document
-        .getElementById("deleteCustomerForm")
-        .submit();
+        document
+            .getElementById("deleteCustomerForm")
+            .submit();
+    });
 }
 
 /* =====================================================
@@ -1906,28 +2052,32 @@ function deleteCustomer(customerId, customerName) {
 
 function deleteVehicle(vehicleId, licensePlate) {
 
-    const confirmed = confirm(
-        "คุณต้องการลบรถทะเบียน \"" +
-        licensePlate +
-        "\" หรือไม่?\n\n" +
-        "ข้อมูลรถยนต์จะถูกลบออกจากระบบ"
-    );
+    openConfirmation({
+        title: "ลบข้อมูลรถยนต์",
+        message: "ข้อมูลรถยนต์จะถูกลบออกจากระบบ กรุณาตรวจสอบก่อนยืนยัน",
+        button: "ลบรถยนต์",
+        danger: true,
+        details: {
+            "ทะเบียนรถ": licensePlate
+        }
+    }, function () {
 
-    if (!confirmed) {
-        return;
-    }
+        document.getElementById("deleteVehicleId").value =
+            vehicleId;
 
-
-    document.getElementById("deleteVehicleId").value =
-        vehicleId;
-
-    document
-        .getElementById("deleteVehicleForm")
-        .submit();
+        document
+            .getElementById("deleteVehicleForm")
+            .submit();
+    });
 }
 
 </script>
 
+
+<?php require __DIR__ . "/../../includes/confirmation_modal.php"; ?>
+
+<!-- LOGOUT MODAL: shared confirmation for admin and user pages -->
+<?php require_once __DIR__ . "/../../includes/logout_modal.php"; ?>
 
 </body>
 
