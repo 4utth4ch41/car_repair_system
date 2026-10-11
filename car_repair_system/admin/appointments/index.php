@@ -1,7 +1,15 @@
 <?php
+/*
+ * ภาพรวมการทำงานกับข้อมูลของไฟล์นี้
+ * หน้านี้โหลดรายชื่อลูกค้าและรถสำหรับฟอร์ม แล้ว JOIN ข้อมูลเพื่อแสดงรายการนัดหมาย
+ * คำค้นมาจาก GET search: ถ้าเว้นว่างไม่เติม WHERE จึงเห็นนัดหมายทั้งหมด
+ * การเพิ่ม/แก้/ยกเลิก/ไม่มาตามนัด ส่งไป workflowAppointment ใน includes/appointment_workflow.php
+ * ประวัติของนัดหมายโหลดเป็นชุดผ่าน workflowHistory ไม่ได้ query ทีละการ์ด
+ */
 
 require_once "../../includes/admin_auth.php";
 require_once "../../config/database.php";
+require_once "../../includes/appointment_workflow.php";
 
 /*
 |--------------------------------------------------------------------------
@@ -30,7 +38,9 @@ $serviceTypes = [
 
 $statusTypes = [
     "scheduled" => "นัดหมายแล้ว",
-    "in_progress" => "กำลังดำเนินการ",
+    "in_progress" => "กำลังดำเนินการ (ข้อมูลเดิม)",
+    "attended" => "เข้ารับบริการแล้ว",
+    "no_show" => "ไม่มาตามนัด",
     "completed" => "เสร็จสิ้น",
     "cancelled" => "ยกเลิก"
 ];
@@ -42,251 +52,18 @@ $statusTypes = [
 |--------------------------------------------------------------------------
 */
 
-if ($_SERVER["REQUEST_METHOD"] === "POST") {
-
-    $action = $_POST["action"] ?? "";
-
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
-
-        /*
-        |--------------------------------------------------------------------------
-        | ADD APPOINTMENT
-        |--------------------------------------------------------------------------
-        */
-
-        if ($action === "add_appointment") {
-
-            $customer_id      = intval($_POST["customer_id"] ?? 0);
-            $vehicle_id       = intval($_POST["vehicle_id"] ?? 0);
-            $appointment_date = $_POST["appointment_date"] ?? "";
-            $appointment_time = $_POST["appointment_time"] ?? "";
-            $service_type     = $_POST["service_type"] ?? "";
-            $status           = $_POST["status"] ?? "scheduled";
-            $description      = trim($_POST["description"] ?? "");
-
-
-            if ($customer_id <= 0) {
-                throw new Exception("กรุณาเลือกลูกค้า");
-            }
-
-            if ($vehicle_id <= 0) {
-                throw new Exception("กรุณาเลือกรถยนต์");
-            }
-
-            if ($appointment_date === "" || $appointment_time === "") {
-                throw new Exception("กรุณาระบุวันและเวลานัดหมาย");
-            }
-
-            if (!array_key_exists($service_type, $serviceTypes)) {
-                throw new Exception("ประเภทบริการไม่ถูกต้อง");
-            }
-
-            if (!array_key_exists($status, $statusTypes)) {
-                throw new Exception("สถานะการนัดหมายไม่ถูกต้อง");
-            }
-
-
-            /*
-            | ตรวจสอบว่ารถเป็นของลูกค้าคนนี้จริง
-            */
-
-            $checkVehicle = $pdo->prepare("
-                SELECT vehicle_id
-                FROM vehicles
-                WHERE vehicle_id = :vehicle_id
-                AND customer_id = :customer_id
-            ");
-
-            $checkVehicle->execute([
-                ":vehicle_id" => $vehicle_id,
-                ":customer_id" => $customer_id
-            ]);
-
-            if (!$checkVehicle->fetch()) {
-                throw new Exception("รถยนต์คันนี้ไม่ได้เป็นของลูกค้าที่เลือก");
-            }
-
-
-            $sql = "
-                INSERT INTO appointments
-                (
-                    customer_id,
-                    vehicle_id,
-                    appointment_date,
-                    appointment_time,
-                    service_type,
-                    description,
-                    status
-                )
-                VALUES
-                (
-                    :customer_id,
-                    :vehicle_id,
-                    :appointment_date,
-                    :appointment_time,
-                    :service_type,
-                    :description,
-                    :status
-                )
-            ";
-
-            $stmt = $pdo->prepare($sql);
-
-            $stmt->execute([
-                ":customer_id"      => $customer_id,
-                ":vehicle_id"       => $vehicle_id,
-                ":appointment_date" => $appointment_date,
-                ":appointment_time" => $appointment_time,
-                ":service_type"     => $service_type,
-                ":description"      => $description,
-                ":status"           => $status
-            ]);
-
-            header("Location: index.php?success=appointment_added");
-            exit;
-        }
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | EDIT APPOINTMENT
-        |--------------------------------------------------------------------------
-        */
-
-        if ($action === "edit_appointment") {
-
-            $appointment_id    = intval($_POST["appointment_id"] ?? 0);
-            $customer_id       = intval($_POST["customer_id"] ?? 0);
-            $vehicle_id        = intval($_POST["vehicle_id"] ?? 0);
-            $appointment_date  = $_POST["appointment_date"] ?? "";
-            $appointment_time  = $_POST["appointment_time"] ?? "";
-            $service_type      = $_POST["service_type"] ?? "";
-            $status            = $_POST["status"] ?? "";
-            $description       = trim($_POST["description"] ?? "");
-
-
-            if ($appointment_id <= 0) {
-                throw new Exception("ไม่พบข้อมูลการนัดหมาย");
-            }
-
-            if ($customer_id <= 0) {
-                throw new Exception("กรุณาเลือกลูกค้า");
-            }
-
-            if ($vehicle_id <= 0) {
-                throw new Exception("กรุณาเลือกรถยนต์");
-            }
-
-            if ($appointment_date === "" || $appointment_time === "") {
-                throw new Exception("กรุณาระบุวันและเวลานัดหมาย");
-            }
-
-            if (!array_key_exists($service_type, $serviceTypes)) {
-                throw new Exception("ประเภทบริการไม่ถูกต้อง");
-            }
-
-            if (!array_key_exists($status, $statusTypes)) {
-                throw new Exception("สถานะการนัดหมายไม่ถูกต้อง");
-            }
-
-
-            /*
-            | ตรวจสอบรถกับลูกค้า
-            */
-
-            $checkVehicle = $pdo->prepare("
-                SELECT vehicle_id
-                FROM vehicles
-                WHERE vehicle_id = :vehicle_id
-                AND customer_id = :customer_id
-            ");
-
-            $checkVehicle->execute([
-                ":vehicle_id" => $vehicle_id,
-                ":customer_id" => $customer_id
-            ]);
-
-            if (!$checkVehicle->fetch()) {
-                throw new Exception("รถยนต์คันนี้ไม่ได้เป็นของลูกค้าที่เลือก");
-            }
-
-
-            $sql = "
-                UPDATE appointments
-                SET
-                    customer_id = :customer_id,
-                    vehicle_id = :vehicle_id,
-                    appointment_date = :appointment_date,
-                    appointment_time = :appointment_time,
-                    service_type = :service_type,
-                    description = :description,
-                    status = :status
-                WHERE appointment_id = :appointment_id
-            ";
-
-            $stmt = $pdo->prepare($sql);
-
-            $stmt->execute([
-                ":customer_id"      => $customer_id,
-                ":vehicle_id"       => $vehicle_id,
-                ":appointment_date" => $appointment_date,
-                ":appointment_time" => $appointment_time,
-                ":service_type"     => $service_type,
-                ":description"      => $description,
-                ":status"           => $status,
-                ":appointment_id"   => $appointment_id
-            ]);
-
-            header("Location: index.php?success=appointment_updated");
-            exit;
-        }
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | DELETE APPOINTMENT
-        |--------------------------------------------------------------------------
-        */
-
-        if ($action === "delete_appointment") {
-
-            $appointment_id = intval($_POST["appointment_id"] ?? 0);
-
-            if ($appointment_id <= 0) {
-                throw new Exception("ไม่พบข้อมูลการนัดหมาย");
-            }
-
-            $stmt = $pdo->prepare("
-                DELETE FROM appointments
-                WHERE appointment_id = :appointment_id
-            ");
-
-            $stmt->execute([
-                ":appointment_id" => $appointment_id
-            ]);
-
-            header("Location: index.php?success=appointment_deleted");
-            exit;
-        }
-
-    } catch (Exception $e) {
-
-        header(
-            "Location: index.php?error=" .
-            urlencode($e->getMessage())
-        );
-
-        exit;
+        workflowAppointment($pdo,$_POST['action'] ?? '',$_POST,(int)$_SESSION['user_id'],$serviceTypes);
+        header('Location: index.php?success=appointment_updated');
+    } catch (InvalidArgumentException $e) {
+        header('Location: index.php?error='.urlencode($e->getMessage()));
+    } catch (Throwable $e) {
+        error_log($e->getMessage());
+        header('Location: index.php?error='.urlencode('ไม่สามารถบันทึกนัดหมายได้ กรุณาลองใหม่'));
     }
+    exit;
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| SEARCH
-|--------------------------------------------------------------------------
-*/
-
 $search = trim($_GET["search"] ?? "");
 
 
@@ -296,6 +73,11 @@ $search = trim($_GET["search"] ?? "");
 |--------------------------------------------------------------------------
 */
 
+/*
+ * ตรงนี้อ่านข้อมูลจาก customers (ลูกค้า)
+ * เรียงตาม: full_name ASC
+ * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+ */
 $customerStmt = $pdo->query("
     SELECT
         customer_id,
@@ -305,6 +87,9 @@ $customerStmt = $pdo->query("
     ORDER BY full_name ASC
 ");
 
+/*
+ * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+ */
 $customers = $customerStmt->fetchAll(PDO::FETCH_ASSOC);
 
 
@@ -314,6 +99,11 @@ $customers = $customerStmt->fetchAll(PDO::FETCH_ASSOC);
 |--------------------------------------------------------------------------
 */
 
+/*
+ * ตรงนี้อ่านข้อมูลจาก vehicles (รถยนต์)
+ * เรียงตาม: license_plate ASC
+ * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+ */
 $vehicleStmt = $pdo->query("
     SELECT
         vehicle_id,
@@ -325,6 +115,9 @@ $vehicleStmt = $pdo->query("
     ORDER BY license_plate ASC
 ");
 
+/*
+ * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+ */
 $vehicles = $vehicleStmt->fetchAll(PDO::FETCH_ASSOC);
 
 
@@ -334,9 +127,15 @@ $vehicles = $vehicleStmt->fetchAll(PDO::FETCH_ASSOC);
 |--------------------------------------------------------------------------
 */
 
+/*
+ * ตรงนี้อ่านข้อมูลจาก appointments (นัดหมาย), repair_jobs (ใบงานซ่อม), customers (ลูกค้า), vehicles (รถยนต์)
+ * JOIN / INNER JOIN เอาเฉพาะแถวที่จับคู่ได้ตาม ON เช่น รหัสลูกค้าหรือรหัสรถตรงกัน
+ * LEFT JOIN ยังเก็บแถวฝั่งซ้ายไว้แม้ฝั่งขวาไม่มีคู่ คอลัมน์ของฝั่งขวาจะเป็น NULL
+ */
 $sql = "
     SELECT
         a.*,
+        r.repair_order_code,
 
         c.full_name AS customer_name,
         c.phone AS customer_phone,
@@ -346,6 +145,7 @@ $sql = "
         v.model
 
     FROM appointments a
+    LEFT JOIN repair_jobs r ON r.appointment_id=a.appointment_id
 
     INNER JOIN customers c
         ON a.customer_id = c.customer_id
@@ -357,6 +157,13 @@ $sql = "
 
 if ($search !== "") {
 
+    /*
+     * ต่อเงื่อนไขกรองเพิ่มให้ SQL เดิม เฉพาะเมื่อ PHP เข้ามาทำงานในบล็อกนี้
+     * เงื่อนไข WHERE ที่ใช้จริง: c.full_name LIKE :search OR c.phone LIKE :search OR v.license_plate LIKE :search OR
+     * v.brand LIKE :search OR v.model LIKE :search OR a.service_type LIKE :search OR a.description LIKE :search
+     * LIKE ใช้ค้นหาข้อความ ส่วน % ที่ PHP เติมหน้าหลังหมายถึงมีคำนี้อยู่ตรงไหนก็เจอ
+     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+     */
     $sql .= "
         WHERE
             c.full_name LIKE :search
@@ -370,6 +177,11 @@ if ($search !== "") {
 }
 
 
+/*
+ * ต่อส่วนเรียงลำดับให้ SQL ที่ประกอบไว้ด้านบน
+ * เรียงตาม: a.appointment_date ASC, a.appointment_time ASC, a.appointment_id DESC
+ * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+ */
 $sql .= "
     ORDER BY
         a.appointment_date ASC,
@@ -380,8 +192,14 @@ $sql .= "
 
 if ($search !== "") {
 
+    /*
+     * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+     */
     $stmt = $pdo->prepare($sql);
 
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
     $stmt->execute([
         ":search" => "%" . $search . "%"
     ]);
@@ -392,7 +210,11 @@ if ($search !== "") {
 }
 
 
+/*
+ * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+ */
 $appointments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$appointmentHistory = workflowHistory($pdo,array_column($appointments,"appointment_id"),"appointment_id");
 
 
 /*
@@ -455,7 +277,7 @@ function thaiTime($time)
         content="width=device-width, initial-scale=1.0"
     >
 
-    <title>การนัดหมาย | P.Chalermchai Car Service</title>
+    <title>การนัดหมาย | ป.เฉลิมชัย คาร์แคร์ เซอร์วิส</title>
 
 
     <!-- CSS หลัก -->
@@ -481,6 +303,13 @@ function thaiTime($time)
         href="../../assets/css/admin/appointment.css"
     >
 
+<link rel="stylesheet" href="../../assets/css/workflow.css">
+    <link rel="stylesheet" href="../../assets/css/confirmation-modal.css">
+
+    <!-- GARAGE THEME: shared navy, gold and warm cream styles -->
+    <link rel="stylesheet" href="../../assets/css/garage-theme.css">
+
+
 </head>
 
 
@@ -494,7 +323,9 @@ function thaiTime($time)
 <header class="topbar">
 
     <div class="brand">
-        P.Chalermchai Car Service
+            <!-- BRAND LOGO: original garage identity -->
+            <img class="brand-logo" src="../../assets/img/logo.jpg" alt="" width="48" height="48">
+        ป.เฉลิมชัย คาร์แคร์ เซอร์วิส
     </div>
 
 
@@ -573,20 +404,20 @@ function thaiTime($time)
         </a>
 
 
-        <a href="../technician/index.php">
-
-            <span class="menu-icon">👨‍🔧</span>
-
-            <span>จัดการช่าง</span>
-
-        </a>
-
-
         <a href="../financial/index.php">
 
             <span class="menu-icon">💰</span>
 
             <span>การเงิน</span>
+
+        </a>
+
+
+        <a href="../technician/index.php">
+
+            <span class="menu-icon">👨‍🔧</span>
+
+            <span>จัดการช่าง</span>
 
         </a>
 
@@ -615,9 +446,14 @@ function thaiTime($time)
 
         <!-- HEADER -->
 
-        <div class="appointment-header">
+        <div class="appointment-header garage-page-header">
 
             <div>
+
+                <!-- PAGE ICON: decorative icon for this page -->
+                <span class="garage-heading-icon" aria-hidden="true">
+                    <i class="fas fa-calendar-check"></i>
+                </span>
 
                 <h1>
                     การจัดการการนัดหมาย
@@ -858,32 +694,59 @@ function thaiTime($time)
                         <!-- ACTIONS -->
 
                         <div class="appointment-actions">
-
-
-                            <button
-                                type="button"
-                                class="appointment-action edit"
-                                onclick='openEditAppointmentModal(<?= $appointmentJson ?>)'
-                            >
-                                ✏️ แก้ไข
+                            <?php if ($appointment['status'] === 'scheduled' && !$appointment['repair_order_code']): ?>
+                            <button type="button" class="appointment-action edit" onclick='openEditAppointmentModal(<?= $appointmentJson ?>)'>
+                                แก้ไข / เลื่อนนัด
                             </button>
-
-
-                            <button
-                                type="button"
-                                class="appointment-action delete"
-                                onclick='openDeleteModal(
-                                    <?= (int)$appointment["appointment_id"] ?>,
-                                    <?= json_encode(
-                                        $appointment["customer_name"],
-                                        JSON_UNESCAPED_UNICODE
-                                    ) ?>
-                                )'
+                            <form
+                                method="POST"
+                                data-confirm-title="ยกเลิกนัดหมาย"
+                                data-confirm-button="ยืนยันยกเลิกนัด"
+                                data-confirm-danger="true"
+                                data-confirm-reason="เหตุผลที่ยกเลิกนัด (จำเป็น)"
+                                data-confirm-details="<?= htmlspecialchars(json_encode([
+                                    'ลูกค้า' => $appointment['customer_name'],
+                                    'ทะเบียนรถ' => $appointment['license_plate'],
+                                    'วันนัด' => thaiDate($appointment['appointment_date']),
+                                    'เวลา' => thaiTime($appointment['appointment_time'])
+                                ], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') ?>"
                             >
-                                🗑️ ลบ
-                            </button>
+                                <input type="hidden" name="action" value="cancel_appointment">
+                                <input type="hidden" name="appointment_id" value="<?= (int)$appointment['appointment_id'] ?>">
+                                <input type="hidden" name="reason">
+                                    <button class="appointment-action delete" type="submit">
+                                        ยกเลิกนัด
+                                    </button>
+                            </form>
 
+                            <form
+                                method="POST"
+                                data-confirm-title="บันทึกไม่มาตามนัด"
+                                data-confirm-button="ยืนยันไม่มาตามนัด"
+                                data-confirm-reason="หมายเหตุการไม่มาตามนัด (จำเป็น)"
+                                data-confirm-details="<?= htmlspecialchars(json_encode([
+                                    'ลูกค้า' => $appointment['customer_name'],
+                                    'ทะเบียนรถ' => $appointment['license_plate'],
+                                    'วันนัด' => thaiDate($appointment['appointment_date']),
+                                    'เวลา' => thaiTime($appointment['appointment_time'])
+                                ], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') ?>"
+                            >
+                                <input type="hidden" name="action" value="no_show">
+                                <input type="hidden" name="appointment_id" value="<?= (int)$appointment['appointment_id'] ?>">
+                                <input type="hidden" name="reason">
+                                    <button class="appointment-action delete" type="submit">
+                                        ไม่มาตามนัด
+                                    </button>
+                            </form>
+                            <?php elseif ($appointment['repair_order_code']): ?>
+
+                            <a class="appointment-action edit" href="../repair_jobs/index.php?search=<?= urlencode($appointment['repair_order_code']) ?>">
+                                ดูใบงาน <?= htmlspecialchars($appointment['repair_order_code']) ?>
+                            </a>
+                            <?php endif; ?>
                         </div>
+                        
+                        <?php workflowRenderHistory($appointmentHistory[$appointment['appointment_id']] ?? []); ?>
 
                     </div>
 
@@ -1117,40 +980,7 @@ function thaiTime($time)
             </div>
 
 
-            <!-- STATUS -->
-
-            <div class="form-group">
-
-                <label>
-                    สถานะ
-                </label>
-
-
-                <select
-                    name="status"
-                >
-
-                    <?php foreach ($statusTypes as $key => $label): ?>
-
-                        <option
-                            value="<?= $key ?>"
-                            <?= $key === "scheduled"
-                                ? "selected"
-                                : "" ?>
-                        >
-
-                            <?= htmlspecialchars($label) ?>
-
-                        </option>
-
-                    <?php endforeach; ?>
-
-                </select>
-
-            </div>
-
-
-            <!-- DESCRIPTION -->
+<p class="form-help">บันทึกแล้วจะมีสถานะนัดหมายแล้วโดยอัตโนมัติ</p>            <!-- DESCRIPTION -->
 
             <div class="form-group">
 
@@ -1386,34 +1216,7 @@ function thaiTime($time)
             </div>
 
 
-            <!-- STATUS -->
-
-            <div class="form-group">
-
-                <label>
-                    สถานะ
-                </label>
-
-
-                <select
-                    name="status"
-                    id="editStatus"
-                >
-
-                    <?php foreach ($statusTypes as $key => $label): ?>
-
-                        <option value="<?= $key ?>">
-                            <?= htmlspecialchars($label) ?>
-                        </option>
-
-                    <?php endforeach; ?>
-
-                </select>
-
-            </div>
-
-
-            <!-- DESCRIPTION -->
+<div class="form-group"><label>เหตุผลที่เลื่อนนัด (จำเป็นเมื่อเปลี่ยนวันหรือเวลา)</label><textarea name="reason" id="rescheduleReason" rows="2"></textarea></div>            <!-- DESCRIPTION -->
 
             <div class="form-group">
 
@@ -1458,84 +1261,8 @@ function thaiTime($time)
 </div>
 
 
-<!-- =====================================================
-     DELETE MODAL
-     ===================================================== -->
-
-<div
-    class="modal-overlay"
-    id="deleteAppointmentModal"
->
-
-    <div class="delete-modal">
-
-        <div class="delete-icon">
-            ⚠️
-        </div>
-
-
-        <h2>
-            ยืนยันการลบ
-        </h2>
-
-
-        <p>
-            คุณต้องการลบการนัดหมายของ
-        </p>
-
-
-        <strong id="deleteCustomerName"></strong>
-
-
-        <p class="delete-warning">
-            ข้อมูลการนัดหมายนี้จะถูกลบออกจากระบบและไม่สามารถกู้คืนได้
-        </p>
-
-
-        <form method="POST">
-
-            <input
-                type="hidden"
-                name="action"
-                value="delete_appointment"
-            >
-
-
-            <input
-                type="hidden"
-                name="appointment_id"
-                id="deleteAppointmentId"
-            >
-
-
-            <div class="delete-actions">
-
-                <button
-                    type="button"
-                    class="btn-cancel"
-                    onclick="closeDeleteModal()"
-                >
-                    ยกเลิก
-                </button>
-
-
-                <button
-                    type="submit"
-                    class="btn-delete-confirm"
-                >
-                    ลบการนัดหมาย
-                </button>
-
-            </div>
-
-        </form>
-
-    </div>
-
-</div>
-
-
 <script>
+
 
 /* =====================================================
    VEHICLE DATA
@@ -1703,8 +1430,7 @@ function openEditAppointmentModal(appointment)
         appointment.service_type;
 
 
-    document.getElementById("editStatus").value =
-        appointment.status;
+    document.getElementById("rescheduleReason").value = "";
 
 
     document.getElementById("editDescription").value =
@@ -1728,30 +1454,6 @@ function closeEditAppointmentModal()
 /* =====================================================
    DELETE MODAL
    ===================================================== */
-
-function openDeleteModal(appointmentId, customerName)
-{
-    document.getElementById("deleteAppointmentId").value =
-        appointmentId;
-
-
-    document.getElementById("deleteCustomerName").textContent =
-        customerName;
-
-
-    document
-        .getElementById("deleteAppointmentModal")
-        .classList.add("show");
-}
-
-
-function closeDeleteModal()
-{
-    document
-        .getElementById("deleteAppointmentModal")
-        .classList.remove("show");
-}
-
 
 /* =====================================================
    CLOSE MODAL WHEN CLICK OUTSIDE
@@ -1779,13 +1481,18 @@ document.addEventListener("keydown", function(event)
 
         closeEditAppointmentModal();
 
-        closeDeleteModal();
+
 
     }
 });
 
 </script>
 
+
+<?php require __DIR__ . "/../../includes/confirmation_modal.php"; ?>
+
+<!-- LOGOUT MODAL: shared confirmation for admin and user pages -->
+<?php require_once __DIR__ . "/../../includes/logout_modal.php"; ?>
 
 </body>
 </html>

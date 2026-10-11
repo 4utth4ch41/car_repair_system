@@ -1,7 +1,14 @@
 <?php
-
+/*
+ * ภาพรวมการทำงานกับข้อมูลของไฟล์นี้
+ * เพิ่มบัญชีต้องเช็ก username ซ้ำก่อน ส่วนแก้บัญชีจะไม่เอา user_id ของตัวเองมานับว่าซ้ำ
+ * รหัสผ่านถูก password_hash ก่อนเก็บ บัญชีใหม่ยังไม่กำหนด role จนกว่าแอดมินจะเลือกบทบาท
+ * กำหนดบทบาทจริงอยู่ที่ includes/user_roles.php ถ้าเป็นช่างจะสร้าง mechanics และผูกทักษะด้วย
+ * ก่อนลบบัญชีตรวจว่ามีข้อมูลช่างผูกอยู่หรือไม่ เพื่อไม่ให้ลบบัญชีที่ต้องจัดการจากหน้าช่าง
+ */
 require_once "../../includes/admin_auth.php";
 require_once "../../config/database.php";
+require_once "../../includes/user_roles.php";
 
 /*
 |--------------------------------------------------------------------------
@@ -42,24 +49,23 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         $username = trim($_POST["username"] ?? "");
         $password = $_POST["password"] ?? "";
-        $role = $_POST["role"] ?? "admin";
+        $role = null;
 
 
         // ตรวจสอบข้อมูล
-        if ($username === "" || $password === "" || $role === "") {
+        if ($username === "" || strlen($password) < 6 || mb_strlen($username) > 50) {
 
-            redirectUsers("กรุณากรอกข้อมูลให้ครบ");
-
-        }
-
-        // หน้า Users สามารถสร้างได้เฉพาะบัญชี Admin
-        if ($role !== "admin") {
-
-            redirectUsers("ไม่สามารถสร้างบัญชีช่างจากหน้านี้ได้ กรุณาเพิ่มช่างผ่านเมนูจัดการช่าง");
+            redirectUsers("กรุณากรอกชื่อผู้ใช้ไม่เกิน 50 ตัวอักษร และรหัสผ่านอย่างน้อย 6 ตัวอักษร");
 
         }
 
         // ตรวจสอบ Username ซ้ำ
+        /*
+         * ตรงนี้อ่านข้อมูลจาก users (บัญชีผู้ใช้)
+         * เงื่อนไข WHERE ที่ใช้จริง: username = :username 
+         * เอาผลลัพธ์ไม่เกิน 1 แถว ตามลำดับที่ query กำหนด
+         * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+         */
         $checkSql = "
             SELECT user_id
             FROM users
@@ -67,12 +73,21 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             LIMIT 1
         ";
 
+        /*
+         * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+         */
         $checkStmt = $pdo->prepare($checkSql);
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $checkStmt->execute([
             ":username" => $username
         ]);
 
+        /*
+         * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+         */
         if ($checkStmt->fetch()) {
 
             redirectUsers("Username นี้มีอยู่ในระบบแล้ว");
@@ -88,6 +103,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
 
         // Insert User
+        /*
+         * เพิ่มแถวใหม่ลง users (บัญชีผู้ใช้)
+         * ค่าหลัง VALUES ต้องตรงกับลำดับคอลัมน์ที่ระบุ ไม่ได้แก้แถวเก่าที่มีอยู่
+         * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+         */
         $sql = "
             INSERT INTO users
             (
@@ -105,8 +125,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             )
         ";
 
+        /*
+         * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+         */
         $stmt = $pdo->prepare($sql);
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $stmt->execute([
             ":username" => $username,
             ":password" => $hashedPassword,
@@ -114,7 +140,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         ]);
 
 
-        redirectUsers("เพิ่มผู้ใช้งานเรียบร้อยแล้ว");
+        redirectUsers("เพิ่มบัญชีแล้ว กรุณากำหนดบทบาทก่อนเข้าใช้งาน");
     }
 
 
@@ -124,6 +150,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     |--------------------------------------------------------------------------
     */
 
+    if ($action === 'assign_role') {
+        try {
+            assignUserRole($pdo, (int)($_POST['user_id'] ?? 0), $_POST['role'] ?? '', $_POST);
+            redirectUsers('กำหนดบทบาทเรียบร้อยแล้ว');
+        } catch (InvalidArgumentException $e) {
+            header('Location: index.php?error=' . urlencode($e->getMessage()));
+            exit;
+        } catch (Throwable $e) {
+            error_log($e->getMessage());
+            header('Location: index.php?error=' . urlencode('ไม่สามารถกำหนดบทบาทได้ กรุณาลองอีกครั้ง'));
+            exit;
+        }
+    }
     if ($action === "edit") {
 
         $userId = (int)($_POST["user_id"] ?? 0);
@@ -137,6 +176,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
 
         // ตรวจสอบ Username ซ้ำ
+        /*
+         * ตรงนี้อ่านข้อมูลจาก users (บัญชีผู้ใช้)
+         * เงื่อนไข WHERE ที่ใช้จริง: username = :username AND user_id != :user_id 
+         * เอาผลลัพธ์ไม่เกิน 1 แถว ตามลำดับที่ query กำหนด
+         * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+         */
         $checkSql = "
             SELECT user_id
             FROM users
@@ -145,13 +190,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             LIMIT 1
         ";
 
+        /*
+         * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+         */
         $checkStmt = $pdo->prepare($checkSql);
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $checkStmt->execute([
             ":username" => $username,
             ":user_id" => $userId
         ]);
 
+        /*
+         * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+         */
         if ($checkStmt->fetch()) {
 
             redirectUsers("Username นี้มีอยู่ในระบบแล้ว");
@@ -160,6 +214,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
 
         // Update
+        /*
+         * แก้ข้อมูลเดิมใน users (บัญชีผู้ใช้) โดยเปลี่ยนเฉพาะคอลัมน์หลัง SET
+         * เงื่อนไข WHERE ที่ใช้จริง: user_id = :user_id
+         * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+         */
         $sql = "
             UPDATE users
             SET
@@ -167,8 +226,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             WHERE user_id = :user_id
         ";
 
+        /*
+         * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+         */
         $stmt = $pdo->prepare($sql);
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $stmt->execute([
             ":username" => $username,
             ":user_id" => $userId
@@ -216,14 +281,25 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
 
         // Update Password
+        /*
+         * แก้ข้อมูลเดิมใน users (บัญชีผู้ใช้) โดยเปลี่ยนเฉพาะคอลัมน์หลัง SET
+         * เงื่อนไข WHERE ที่ใช้จริง: user_id = :user_id
+         * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+         */
         $sql = "
             UPDATE users
             SET password = :password
             WHERE user_id = :user_id
         ";
 
+        /*
+         * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+         */
         $stmt = $pdo->prepare($sql);
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $stmt->execute([
             ":password" => $hashedPassword,
             ":user_id" => $userId
@@ -265,6 +341,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         | ป้องกันการลบบัญชีช่างจากหน้า Users
         */
 
+        /*
+         * ตรงนี้อ่านข้อมูลจาก mechanics (ช่าง)
+         * เงื่อนไข WHERE ที่ใช้จริง: user_id = :user_id 
+         * เอาผลลัพธ์ไม่เกิน 1 แถว ตามลำดับที่ query กำหนด
+         * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+         */
         $checkMechanic = $pdo->prepare("
             SELECT mechanic_id
             FROM mechanics
@@ -272,10 +354,16 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             LIMIT 1
         ");
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $checkMechanic->execute([
             ":user_id" => $userId
         ]);
 
+        /*
+         * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+         */
         if ($checkMechanic->fetch()) {
 
             redirectUsers(
@@ -285,13 +373,24 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
 
 
+        /*
+         * ลบแถวออกจาก users (บัญชีผู้ใช้) ตามเงื่อนไขด้านล่าง
+         * เงื่อนไข WHERE ที่ใช้จริง: user_id = :user_id
+         * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+         */
         $sql = "
             DELETE FROM users
             WHERE user_id = :user_id
         ";
 
+        /*
+         * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+         */
         $stmt = $pdo->prepare($sql);
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $stmt->execute([
             ":user_id" => $userId
         ]);
@@ -308,6 +407,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 |--------------------------------------------------------------------------
 */
 
+/*
+ * ตรงนี้อ่านข้อมูลจาก users (บัญชีผู้ใช้)
+ * เรียงตาม: user_id DESC
+ * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+ */
 $sql = "
     SELECT
         user_id,
@@ -317,12 +421,14 @@ $sql = "
         created_at,
         updated_at
     FROM users
-    WHERE role = 'admin'
     ORDER BY user_id DESC
 ";
 
 $stmt = $pdo->query($sql);
 
+/*
+ * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+ */
 $users = $stmt->fetchAll();
 
 
@@ -333,6 +439,13 @@ $users = $stmt->fetchAll();
 */
 
 $success = $_GET["success"] ?? "";
+$error = $_GET["error"] ?? "";
+/*
+ * ตรงนี้อ่านข้อมูลจาก skills (ทักษะช่าง)
+ * เรียงตาม: skill_name
+ * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+ */
+$skillsList = $pdo->query("SELECT skill_id, skill_name FROM skills ORDER BY skill_name")->fetchAll();
 
 ?>
 
@@ -350,7 +463,7 @@ $success = $_GET["success"] ?? "";
     >
 
     <title>
-        จัดการบัญชีผู้ใช้ | P.Chalermchai Car Service
+        จัดการบัญชีผู้ใช้ | ป.เฉลิมชัย คาร์แคร์ เซอร์วิส
     </title>
 
 
@@ -377,6 +490,10 @@ $success = $_GET["success"] ?? "";
         href="../../assets/css/admin/users.css"
     >
 
+    <!-- GARAGE THEME: shared navy, gold and warm cream styles -->
+    <link rel="stylesheet" href="../../assets/css/garage-theme.css">
+
+
 </head>
 
 
@@ -390,7 +507,9 @@ $success = $_GET["success"] ?? "";
 <header class="topbar">
 
     <div class="brand">
-        P.Chalermchai Car Service
+            <!-- BRAND LOGO: original garage identity -->
+            <img class="brand-logo" src="../../assets/img/logo.jpg" alt="" width="48" height="48">
+        ป.เฉลิมชัย คาร์แคร์ เซอร์วิส
     </div>
 
 
@@ -466,20 +585,20 @@ $success = $_GET["success"] ?? "";
         </a>
 
 
-        <a href="../technician/index.php">
-
-            <span class="menu-icon">👨‍🔧</span>
-
-            <span>จัดการช่าง</span>
-
-        </a>
-
-
         <a href="../financial/index.php">
 
             <span class="menu-icon">💰</span>
 
             <span>การเงิน</span>
+
+        </a>
+
+
+        <a href="../technician/index.php">
+
+            <span class="menu-icon">👨‍🔧</span>
+
+            <span>จัดการช่าง</span>
 
         </a>
 
@@ -512,9 +631,14 @@ $success = $_GET["success"] ?? "";
 
         <!-- HEADER -->
 
-        <div class="users-header">
+        <div class="users-header garage-page-header">
 
             <div>
+
+                <!-- PAGE ICON: decorative icon for this page -->
+                <span class="garage-heading-icon" aria-hidden="true">
+                    <i class="fas fa-user-shield"></i>
+                </span>
 
                 <h1>
                     การจัดการผู้ใช้งาน
@@ -557,6 +681,9 @@ $success = $_GET["success"] ?? "";
 
 
 
+<?php if ($error !== ''): ?><div class="error-message" role="alert"><?= htmlspecialchars($error) ?></div><?php endif; ?>
+<div class="role-filter"><label for="roleFilter">บทบาท</label><select id="roleFilter" onchange="filterUsers(this.value)"><option value="all">ทั้งหมด</option><option value="pending">รอกำหนดบทบาท</option><option value="admin">แอดมิน</option><option value="mechanic">ช่าง</option></select></div>
+<p id="noRoleResults" hidden>ไม่พบบัญชีในบทบาทที่เลือก</p>
         <!-- USER CARDS -->
 
         <div class="users-grid">
@@ -582,7 +709,7 @@ $success = $_GET["success"] ?? "";
 
             <?php foreach ($users as $user): ?>
 
-                <div class="user-card">
+                <div class="user-card" data-role="<?= $user["role"] === null ? "pending" : htmlspecialchars($user["role"]) ?>">
 
 
                     <!-- USER INFO -->
@@ -613,20 +740,7 @@ $success = $_GET["success"] ?? "";
                             </h3>
 
 
-                            <span
-                                class="role-badge
-                                <?= $user["role"] === "admin"
-                                    ? "role-admin"
-                                    : "role-mechanic"
-                                ?>"
-                            >
-
-                                <?= $user["role"] === "admin"
-                                    ? "แอดมิน"
-                                    : "ช่าง"
-                                ?>
-
-                            </span>
+                            <span class="role-badge <?= $user["role"] === null ? "role-pending" : ($user["role"] === "admin" ? "role-admin" : "role-mechanic") ?>"><?= $user["role"] === null ? "รอกำหนดบทบาท" : ($user["role"] === "admin" ? "แอดมิน" : "ช่าง") ?></span>
 
                         </div>
 
@@ -638,7 +752,7 @@ $success = $_GET["success"] ?? "";
 
                     <div class="user-status">
 
-                        <?php if ((int)$user["is_active"] === 1): ?>
+                        <?php if ($user["role"] === null): ?><span class="status-inactive">● รอกำหนดบทบาท — ยังเข้าใช้งานไม่ได้</span><?php elseif ((int)$user["is_active"] === 1): ?>
 
                             <span class="status-active">
                                 ● ใช้งานอยู่
@@ -659,6 +773,7 @@ $success = $_GET["success"] ?? "";
                     <!-- ACTIONS -->
 
                     <div class="user-actions">
+<?php if ($user["role"] === null): ?><button type="button" class="action-btn" onclick="openRoleModal(<?= (int)$user["user_id"] ?>)">กำหนดบทบาท</button><?php endif; ?>
 
 
                         <!-- EDIT -->
@@ -668,8 +783,8 @@ $success = $_GET["success"] ?? "";
                             class="action-btn"
                             onclick='openEditModal(
                                 <?= json_encode($user["user_id"]) ?>,
-                                <?= json_encode($user["username"]) ?>,
-                                <?= json_encode($user["role"]) ?>
+                                <?= json_encode($user["username"], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>,
+                                <?= json_encode($user["role"], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>
                             )'
                         >
 
@@ -686,7 +801,7 @@ $success = $_GET["success"] ?? "";
                             class="action-btn"
                             onclick='openResetModal(
                                 <?= json_encode($user["user_id"]) ?>,
-                                <?= json_encode($user["username"]) ?>
+                                <?= json_encode($user["username"], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>
                             )'
                         >
 
@@ -701,7 +816,7 @@ $success = $_GET["success"] ?? "";
                         <?php if (
                             (int)$user["user_id"]
                             !==
-                            (int)$_SESSION["user_id"]
+                            (int)$_SESSION["user_id"] && $user["role"] !== "mechanic"
                         ): ?>
 
                             <button
@@ -709,7 +824,7 @@ $success = $_GET["success"] ?? "";
                                 class="action-btn danger"
                                 onclick='openDeleteModal(
                                     <?= json_encode($user["user_id"]) ?>,
-                                    <?= json_encode($user["username"]) ?>
+                                    <?= json_encode($user["username"], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>
                                 )'
                             >
 
@@ -813,21 +928,7 @@ $success = $_GET["success"] ?? "";
                     ตำแหน่ง
                 </label>
 
-                <input
-                    type="text"
-                    value="แอดมิน"
-                    readonly
-                >
-
-                <input
-                    type="hidden"
-                    name="role"
-                    value="admin"
-                >
-
-                <small class="form-help">
-                    บัญชีช่างต้องสร้างผ่านเมนู "จัดการช่าง"
-                </small>
+                <input type="text" value="รอกำหนดบทบาท" readonly><small class="form-help">บันทึกบัญชีก่อน แล้วกำหนดบทบาทภายหลัง บัญชียังเข้าใช้งานไม่ได้จนกว่าจะมีบทบาท</small>
 
             </div>
 
@@ -887,7 +988,7 @@ $success = $_GET["success"] ?? "";
 
 
         <p class="modal-description">
-            แก้ไขชื่อผู้ใช้งานและตำแหน่ง
+            แก้ไขชื่อผู้ใช้งาน บทบาทที่กำหนดแล้วไม่สามารถเปลี่ยนได้
         </p>
 
 
@@ -1174,7 +1275,55 @@ $success = $_GET["success"] ?? "";
      JAVASCRIPT
 ===================================================== -->
 
+<div id="roleModal" class="modal">
+    <div class="modal-content">
+        <button type="button" class="modal-close" onclick="closeModal('roleModal')">×</button>
+        <h2>กำหนดบทบาท</h2>
+        <p class="modal-description">กำหนดได้ครั้งเดียว เมื่อบันทึกแล้วจะเปลี่ยนบทบาทไม่ได้</p>
+        <form method="POST" id="roleForm">
+            <input type="hidden" name="action" value="assign_role">
+            <input type="hidden" name="user_id" id="role_user_id">
+            <div class="form-group"><label for="roleSelect">บทบาท *</label>
+                <select name="role" id="roleSelect" required onchange="toggleMechanicFields()">
+                    <option value="">เลือกบทบาท</option><option value="admin">แอดมิน</option><option value="mechanic">ช่าง</option>
+                </select>
+            </div>
+            <fieldset id="mechanicFields" hidden disabled>
+                <div class="form-group"><label for="roleFullName">ชื่อ - นามสกุลช่าง *</label><input id="roleFullName" name="full_name" maxlength="150" required></div>
+                <div class="form-group"><label for="rolePhone">เบอร์โทรศัพท์</label><input id="rolePhone" name="phone" maxlength="20"></div>
+                <div class="form-group"><label>ความสามารถและความถนัด</label><div class="role-skills">
+                    <?php foreach ($skillsList as $skill): ?>
+                    <label class="role-skill"><input type="checkbox" name="skills[]" value="<?= (int)$skill['skill_id'] ?>"> <?= htmlspecialchars($skill['skill_name']) ?></label>
+                    <?php endforeach; ?>
+                </div></div>
+                <div class="form-group"><label for="roleStatus">สถานะการรับงาน</label><select id="roleStatus" name="status"><option value="available">พร้อมรับงาน</option><option value="busy">ไม่ว่าง</option><option value="inactive">พักงาน</option></select></div>
+            </fieldset>
+            <div class="modal-actions"><button type="button" class="btn-secondary" onclick="closeModal('roleModal')">ยกเลิก</button><button type="submit" class="btn-primary">ยืนยันบทบาท</button></div>
+        </form>
+    </div>
+</div>
 <script>
+function openRoleModal(userId) {
+    document.getElementById('roleForm').reset();
+    document.getElementById('role_user_id').value = userId;
+    toggleMechanicFields();
+    document.getElementById('roleModal').classList.add('show');
+}
+function toggleMechanicFields() {
+    const fields = document.getElementById('mechanicFields');
+    const mechanic = document.getElementById('roleSelect').value === 'mechanic';
+    fields.hidden = !mechanic;
+    fields.disabled = !mechanic;
+}
+function filterUsers(role) {
+    let visible = 0;
+    document.querySelectorAll('.user-card[data-role]').forEach(card => {
+        card.hidden = role !== 'all' && card.dataset.role !== role;
+        if (!card.hidden) visible++;
+    });
+    document.getElementById('noRoleResults').hidden = visible > 0;
+}
+
 
 function openAddModal()
 {
@@ -1199,7 +1348,7 @@ function openEditModal(
         .value =
             role === "admin"
                 ? "แอดมิน"
-                : "ช่าง";
+                : (role === "mechanic" ? "ช่าง" : "รอกำหนดบทบาท");
 
     document.getElementById("editModal")
         .classList.add("show");
@@ -1267,6 +1416,9 @@ window.addEventListener(
 
 </script>
 
+
+<!-- LOGOUT MODAL: shared confirmation for admin and user pages -->
+<?php require_once __DIR__ . "/../../includes/logout_modal.php"; ?>
 
 </body>
 

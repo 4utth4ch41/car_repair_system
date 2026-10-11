@@ -1,7 +1,22 @@
 <?php
+/*
+ * ภาพรวมการทำงานกับข้อมูลของไฟล์นี้
+ * สร้างใบแจ้งหนี้ได้จากใบงาน completed และตรวจว่าใบงานนั้นยังไม่มี invoice ก่อนบันทึก
+ * รายได้ใช้ status = paid และ paid_at ตามเวลาไทย แยกวันนี้ / สัปดาห์ / เดือน / ปี
+ * ยอดค้างรวม unpaid กับ overdue ส่วน paid ที่ไม่มี paid_at จะไม่เข้ารายได้ตามช่วงเวลา
+ * weekly_revenue ยังถูกคำนวณอยู่ใน SQL แต่หน้าเว็บไม่ได้แสดงการ์ดสัปดาห์แล้ว
+ * คำค้นและตัวกรองสถานะใช้กับตารางรายการเท่านั้น การ์ดสรุปด้านบนคิดจากใบแจ้งหนี้ทั้งหมด
+ * รับชำระซ้ำไม่เขียน paid_at ใหม่ เพราะ UPDATE มีเงื่อนไข status <> paid
+ */
 
 require_once "../../config/database.php";
 require_once "../../includes/admin_auth.php";
+
+date_default_timezone_set("Asia/Bangkok");
+/*
+ * ตั้งเขตเวลาเฉพาะ connection นี้เป็น +07:00 ให้ NOW / CURDATE / CURRENT_TIMESTAMP ตรงกับเวลาไทย
+ */
+$pdo->exec("SET time_zone = '+07:00'");
 
 
 // =====================================================
@@ -41,7 +56,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST"
 
         $service_amount = (float)($_POST["service_amount"] ?? 0);
         $parts_amount   = (float)($_POST["parts_amount"] ?? 0);
-        $labor_amount   = (float)($_POST["labor_amount"] ?? 0);
+        
+        // ระบบไม่มีการกรอกค่าแรงช่างแยก
+        $labor_amount = 0;
 
         $issue_date = $_POST["issue_date"] ?? date("Y-m-d");
 
@@ -73,6 +90,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST"
         // ตรวจสอบ Repair Job
         // -------------------------------------------------
 
+        /*
+         * ตรงนี้อ่านข้อมูลจาก repair_jobs (ใบงานซ่อม), customers (ลูกค้า)
+         * JOIN / INNER JOIN เอาเฉพาะแถวที่จับคู่ได้ตาม ON เช่น รหัสลูกค้าหรือรหัสรถตรงกัน
+         * เงื่อนไข WHERE ที่ใช้จริง: r.repair_order_id = :repair_order_id AND r.status = 'completed' 
+         * เอาผลลัพธ์ไม่เกิน 1 แถว ตามลำดับที่ query กำหนด
+         * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+         */
         $stmt = $pdo->prepare("
             SELECT
                 r.repair_order_id,
@@ -82,14 +106,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST"
             FROM repair_jobs r
             INNER JOIN customers c
                 ON r.customer_id = c.customer_id
-            WHERE r.repair_order_id = :repair_order_id
+            WHERE r.repair_order_id = :repair_order_id AND r.status = 'completed'
             LIMIT 1
         ");
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $stmt->execute([
             ":repair_order_id" => $repair_order_id
         ]);
 
+        /*
+         * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+         */
         $repair_job = $stmt->fetch();
 
 
@@ -102,6 +132,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST"
         // ตรวจสอบว่ามี Invoice แล้วหรือยัง
         // -------------------------------------------------
 
+        /*
+         * ตรงนี้อ่านข้อมูลจาก invoices (ใบแจ้งหนี้)
+         * เงื่อนไข WHERE ที่ใช้จริง: repair_order_id = :repair_order_id 
+         * เอาผลลัพธ์ไม่เกิน 1 แถว ตามลำดับที่ query กำหนด
+         * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+         */
         $stmt = $pdo->prepare("
             SELECT invoice_id
             FROM invoices
@@ -109,10 +145,16 @@ if ($_SERVER["REQUEST_METHOD"] === "POST"
             LIMIT 1
         ");
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $stmt->execute([
             ":repair_order_id" => $repair_order_id
         ]);
 
+        /*
+         * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+         */
         if ($stmt->fetch()) {
             throw new Exception("ใบงานซ่อมนี้มีใบแจ้งหนี้แล้ว");
         }
@@ -132,6 +174,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST"
         // สร้างเลข Invoice
         // -------------------------------------------------
 
+        /*
+         * ตรงนี้อ่านข้อมูลจาก invoices (ใบแจ้งหนี้)
+         * เรียงตาม: invoice_id DESC 
+         * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+         * เอาผลลัพธ์ไม่เกิน 1 แถว ตามลำดับที่ query กำหนด
+         */
         $stmt = $pdo->query("
             SELECT invoice_no
             FROM invoices
@@ -139,6 +187,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST"
             LIMIT 1
         ");
 
+        /*
+         * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+         */
         $last_invoice = $stmt->fetch();
 
         if ($last_invoice) {
@@ -183,6 +234,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST"
         // INSERT
         // -------------------------------------------------
 
+        /*
+         * เพิ่มแถวใหม่ลง invoices (ใบแจ้งหนี้)
+         * ค่าหลัง VALUES ต้องตรงกับลำดับคอลัมน์ที่ระบุ ไม่ได้แก้แถวเก่าที่มีอยู่
+         * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+         */
         $stmt = $pdo->prepare("
             INSERT INTO invoices (
                 invoice_no,
@@ -214,6 +270,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST"
             )
         ");
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $stmt->execute([
 
             ":invoice_no" =>
@@ -283,6 +342,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST"
         }
 
 
+        /*
+         * แก้ข้อมูลเดิมใน invoices (ใบแจ้งหนี้) โดยเปลี่ยนเฉพาะคอลัมน์หลัง SET
+         * เงื่อนไข WHERE ที่ใช้จริง: invoice_id = :invoice_id AND status <> 'paid'
+         * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+         */
         $stmt = $pdo->prepare("
             UPDATE invoices
             SET
@@ -292,6 +356,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST"
             AND status <> 'paid'
         ");
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $stmt->execute([
             ":invoice_id" => $invoice_id
         ]);
@@ -326,11 +393,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST"
         }
 
 
+        /*
+         * ลบแถวออกจาก invoices (ใบแจ้งหนี้) ตามเงื่อนไขด้านล่าง
+         * เงื่อนไข WHERE ที่ใช้จริง: invoice_id = :invoice_id
+         * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+         */
         $stmt = $pdo->prepare("
             DELETE FROM invoices
             WHERE invoice_id = :invoice_id
         ");
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $stmt->execute([
             ":invoice_id" => $invoice_id
         ]);
@@ -385,13 +460,29 @@ $status_filter =
 // DASHBOARD SUMMARY
 // =====================================================
 
+/*
+ * CASE เลือกยอด total_amount เฉพาะบิลที่เข้าเงื่อนไข นอกนั้นให้ 0 แล้ว SUM รวม
+ * daily_revenue ใช้ DATE ตัดเวลาออกจาก paid_at แล้วเทียบกับวันนี้ของฐานข้อมูล
+ * weekly_revenue ใช้ YEARWEEK(..., 3) เริ่มสัปดาห์วันจันทร์ และเทียบปีของสัปดาห์ด้วย
+ * monthly_revenue ต้องตรงทั้งเดือนและปี ส่วน yearly_revenue ตรงเฉพาะปีปัจจุบัน
+ * outstanding ไม่กรองวัน คือยอดทุกบิลที่ unpaid (ยังไม่จ่าย) หรือ overdue (เกินกำหนด)
+ * COALESCE(..., 0) ทำให้ไม่มีรายการแล้วแสดง 0 แทน NULL
+ */
+
+/*
+ * ตรงนี้อ่านข้อมูลจาก invoices (ใบแจ้งหนี้)
+ * IN คือรับค่าที่อยู่ในชุดที่ระบุ ถ้าเป็นชุด ? ให้ส่งค่าตามจำนวนและลำดับ placeholder
+ * SUM รวมค่าตัวเลขของแถวที่ผ่านเงื่อนไข ถ้ามี CASE จะรวมเฉพาะกิ่งที่เข้าเงื่อนไขนั้น
+ * COALESCE เลือกค่าตัวแรกที่ไม่เป็น NULL เช่น ยอดรวมไม่มีข้อมูลให้ใช้ 0 หรือเวลาเริ่มงานยังว่างให้ใช้ NOW()
+ */
 $stmt = $pdo->query("
     SELECT
 
         COALESCE(
             SUM(
                 CASE
-                    WHEN issue_date = CURDATE()
+                    WHEN status = 'paid'
+                    AND DATE(paid_at) = CURDATE()
                     THEN total_amount
                     ELSE 0
                 END
@@ -402,8 +493,9 @@ $stmt = $pdo->query("
         COALESCE(
             SUM(
                 CASE
-                    WHEN YEARWEEK(issue_date, 1)
-                         = YEARWEEK(CURDATE(), 1)
+                    WHEN status = 'paid'
+                    AND YEARWEEK(paid_at, 3)
+                        = YEARWEEK(CURDATE(), 3)
                     THEN total_amount
                     ELSE 0
                 END
@@ -414,8 +506,9 @@ $stmt = $pdo->query("
         COALESCE(
             SUM(
                 CASE
-                    WHEN YEAR(issue_date) = YEAR(CURDATE())
-                    AND MONTH(issue_date) = MONTH(CURDATE())
+                    WHEN status = 'paid'
+                    AND YEAR(paid_at) = YEAR(CURDATE())
+                    AND MONTH(paid_at) = MONTH(CURDATE())
                     THEN total_amount
                     ELSE 0
                 END
@@ -426,7 +519,19 @@ $stmt = $pdo->query("
         COALESCE(
             SUM(
                 CASE
-                    WHEN status = 'unpaid'
+                    WHEN status = 'paid'
+                    AND YEAR(paid_at) = YEAR(CURDATE())
+                    THEN total_amount
+                    ELSE 0
+                END
+            ),
+            0
+        ) AS yearly_revenue,
+
+        COALESCE(
+            SUM(
+                CASE
+                    WHEN status IN ('unpaid', 'overdue')
                     THEN total_amount
                     ELSE 0
                 END
@@ -435,28 +540,63 @@ $stmt = $pdo->query("
         ) AS outstanding
 
     FROM invoices
-    WHERE status <> 'overdue'
 ");
 
+/*
+ * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+ */
 $summary = $stmt->fetch();
-
 
 // =====================================================
 // LOAD REPAIR JOBS
 // =====================================================
 
+/*
+ * ตรงนี้อ่านข้อมูลจาก parts_used (อะไหล่ที่ใช้ในแต่ละใบงาน), repair_jobs (ใบงานซ่อม), customers (ลูกค้า),
+ * vehicles (รถยนต์), invoices (ใบแจ้งหนี้)
+ * JOIN / INNER JOIN เอาเฉพาะแถวที่จับคู่ได้ตาม ON เช่น รหัสลูกค้าหรือรหัสรถตรงกัน
+ * เงื่อนไขหลัก: เอาเฉพาะใบงาน completed และยังไม่มี invoices ที่ใช้ repair_order_id เดียวกัน
+ * query ย่อย parts_used ผูก p.repair_order_id กับ r.repair_order_id ของใบงานแถวปัจจุบัน
+ * จึงได้ parts_total เป็นค่าอะไหล่ของใบงานนั้น ไม่ใช่ค่าอะไหล่รวมทั้งอู่
+ * NOT EXISTS เลือกเฉพาะแถวที่ query ย่อยหาแถวที่เกี่ยวข้องไม่เจอ เช่น ใบงานที่ยังไม่ออก invoice
+ * SUM รวมค่าตัวเลขของแถวที่ผ่านเงื่อนไข ถ้ามี CASE จะรวมเฉพาะกิ่งที่เข้าเงื่อนไขนั้น
+ * COALESCE เลือกค่าตัวแรกที่ไม่เป็น NULL เช่น ยอดรวมไม่มีข้อมูลให้ใช้ 0 หรือเวลาเริ่มงานยังว่างให้ใช้ NOW()
+ * เรียงตาม: r.repair_order_id DESC
+ * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+ */
 $stmt = $pdo->query("
     SELECT
         r.repair_order_id,
         r.repair_order_code,
         r.customer_id,
+        r.vehicle_id,
+        r.status,
+
         c.full_name,
-        r.status
+        c.phone,
+
+        v.license_plate,
+        v.brand,
+        v.model,
+        v.color,
+        v.mileage,
+
+        COALESCE(
+            (
+                SELECT SUM(p.total_price)
+                FROM parts_used p
+                WHERE p.repair_order_id = r.repair_order_id
+            ),
+            0
+        ) AS parts_total
 
     FROM repair_jobs r
 
     INNER JOIN customers c
         ON r.customer_id = c.customer_id
+
+    INNER JOIN vehicles v
+        ON r.vehicle_id = v.vehicle_id
 
     WHERE r.status = 'completed'
 
@@ -469,14 +609,195 @@ $stmt = $pdo->query("
     ORDER BY r.repair_order_id DESC
 ");
 
-$repair_jobs =
-    $stmt->fetchAll();
+/*
+ * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+ */
+$repair_jobs = $stmt->fetchAll();
 
+
+// =====================================================
+// LOAD PARTS USED
+// =====================================================
+
+$parts_by_job = [];
+
+if (count($repair_jobs) > 0) {
+
+    $job_ids = array_column(
+        $repair_jobs,
+        "repair_order_id"
+    );
+
+    $placeholders = implode(
+        ",",
+        array_fill(
+            0,
+            count($job_ids),
+            "?"
+        )
+    );
+
+    /*
+     * ตรงนี้อ่านข้อมูลจาก parts_used (อะไหล่ที่ใช้ในแต่ละใบงาน)
+     * เงื่อนไข WHERE ที่ใช้จริง: repair_order_id IN ($placeholders) 
+     * IN คือรับค่าที่อยู่ในชุดที่ระบุ ถ้าเป็นชุด ? ให้ส่งค่าตามจำนวนและลำดับ placeholder
+     * เรียงตาม: part_id ASC
+     * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+     */
+    $stmt = $pdo->prepare("
+        SELECT
+            part_id,
+            repair_order_id,
+            part_name,
+            quantity,
+            unit_price,
+            total_price
+
+        FROM parts_used
+
+        WHERE repair_order_id IN ($placeholders)
+
+        ORDER BY part_id ASC
+    ");
+
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
+    $stmt->execute($job_ids);
+
+    /*
+     * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+     */
+    $parts = $stmt->fetchAll();
+
+    foreach ($parts as $part) {
+
+        $repair_order_id =
+            (int)$part["repair_order_id"];
+
+        if (!isset($parts_by_job[$repair_order_id])) {
+
+            $parts_by_job[$repair_order_id] = [];
+
+        }
+
+        $parts_by_job[$repair_order_id][] = $part;
+    }
+}
+
+
+// =====================================================
+// ATTACH PARTS TO REPAIR JOBS
+// =====================================================
+
+foreach ($repair_jobs as &$job) {
+
+    $repair_order_id =
+        (int)$job["repair_order_id"];
+
+    $job["parts"] =
+        $parts_by_job[$repair_order_id] ?? [];
+
+}
+
+unset($job);
+
+// =====================================================
+// LOAD PARTS USED
+// =====================================================
+
+$parts_by_job = [];
+
+if (count($repair_jobs) > 0) {
+
+    $job_ids = array_column(
+        $repair_jobs,
+        "repair_order_id"
+    );
+
+    $placeholders = implode(
+        ",",
+        array_fill(
+            0,
+            count($job_ids),
+            "?"
+        )
+    );
+
+    /*
+     * ตรงนี้อ่านข้อมูลจาก parts_used (อะไหล่ที่ใช้ในแต่ละใบงาน)
+     * เงื่อนไข WHERE ที่ใช้จริง: repair_order_id IN ($placeholders) 
+     * IN คือรับค่าที่อยู่ในชุดที่ระบุ ถ้าเป็นชุด ? ให้ส่งค่าตามจำนวนและลำดับ placeholder
+     * เรียงตาม: part_id ASC
+     * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+     */
+    $stmt = $pdo->prepare("
+        SELECT
+            part_id,
+            repair_order_id,
+            part_name,
+            quantity,
+            unit_price,
+            total_price
+
+        FROM parts_used
+
+        WHERE repair_order_id IN ($placeholders)
+
+        ORDER BY part_id ASC
+    ");
+
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
+    $stmt->execute($job_ids);
+
+    /*
+     * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+     */
+    $parts = $stmt->fetchAll();
+
+    foreach ($parts as $part) {
+
+        $repair_order_id =
+            (int)$part["repair_order_id"];
+
+        if (!isset($parts_by_job[$repair_order_id])) {
+
+            $parts_by_job[$repair_order_id] = [];
+
+        }
+
+        $parts_by_job[$repair_order_id][] = $part;
+    }
+}
+
+
+// =====================================================
+// ATTACH PARTS TO REPAIR JOBS
+// =====================================================
+
+foreach ($repair_jobs as &$job) {
+
+    $repair_order_id =
+        (int)$job["repair_order_id"];
+
+    $job["parts"] =
+        $parts_by_job[$repair_order_id] ?? [];
+
+}
+
+unset($job);
 
 // =====================================================
 // LOAD INVOICES
 // =====================================================
 
+/*
+ * ตรงนี้อ่านข้อมูลจาก invoices (ใบแจ้งหนี้), repair_jobs (ใบงานซ่อม), customers (ลูกค้า)
+ * JOIN / INNER JOIN เอาเฉพาะแถวที่จับคู่ได้ตาม ON เช่น รหัสลูกค้าหรือรหัสรถตรงกัน
+ * เงื่อนไข WHERE ที่ใช้จริง: 1 = 1
+ */
 $sql = "
     SELECT
         i.*,
@@ -503,6 +824,12 @@ $params = [];
 
 if ($search !== "") {
 
+    /*
+     * ต่อเงื่อนไขกรองเพิ่มให้ SQL เดิม เฉพาะเมื่อ PHP เข้ามาทำงานในบล็อกนี้
+     * ต้องผ่านเงื่อนไขเดิมด้วย และเพิ่มเงื่อนไข: c.full_name LIKE :search
+     * LIKE ใช้ค้นหาข้อความ ส่วน % ที่ PHP เติมหน้าหลังหมายถึงมีคำนี้อยู่ตรงไหนก็เจอ
+     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+     */
     $sql .= "
         AND c.full_name LIKE :search
     ";
@@ -521,6 +848,11 @@ if (
     )
 ) {
 
+    /*
+     * ต่อเงื่อนไขกรองเพิ่มให้ SQL เดิม เฉพาะเมื่อ PHP เข้ามาทำงานในบล็อกนี้
+     * ต้องผ่านเงื่อนไขเดิมด้วย และเพิ่มเงื่อนไข: i.status = :status
+     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+     */
     $sql .= "
         AND i.status = :status
     ";
@@ -530,16 +862,30 @@ if (
 }
 
 
+/*
+ * ต่อส่วนเรียงลำดับให้ SQL ที่ประกอบไว้ด้านบน
+ * เรียงตาม: i.invoice_id DESC
+ * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+ */
 $sql .= "
     ORDER BY i.invoice_id DESC
 ";
 
 
+/*
+ * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+ */
 $stmt = $pdo->prepare($sql);
 
+/*
+ * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+ */
 $stmt->execute($params);
 
 $invoices =
+    /*
+     * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+     */
     $stmt->fetchAll();
 
 ?>
@@ -556,7 +902,7 @@ $invoices =
         content="width=device-width, initial-scale=1.0"
     >
 
-    <title>การเงิน | P.Chalermchai Car Service</title>
+    <title>การเงิน | ป.เฉลิมชัย คาร์แคร์ เซอร์วิส</title>
 
 
     <!-- CSS หลัก -->
@@ -582,6 +928,12 @@ $invoices =
         href="../../assets/css/admin/financial.css"
     >
 
+    <link rel="stylesheet" href="../../assets/css/confirmation-modal.css">
+
+    <!-- GARAGE THEME: shared navy, gold and warm cream styles -->
+    <link rel="stylesheet" href="../../assets/css/garage-theme.css">
+
+
 </head>
 
 
@@ -595,7 +947,9 @@ $invoices =
 <header class="topbar">
 
     <div class="brand">
-        P.Chalermchai Car Service
+            <!-- BRAND LOGO: original garage identity -->
+            <img class="brand-logo" src="../../assets/img/logo.jpg" alt="" width="48" height="48">
+        ป.เฉลิมชัย คาร์แคร์ เซอร์วิส
     </div>
 
 
@@ -671,15 +1025,6 @@ $invoices =
         </a>
 
 
-        <a href="../technician/index.php">
-
-            <span class="menu-icon">👨‍🔧</span>
-
-            <span>จัดการช่าง</span>
-
-        </a>
-
-
         <a
             href="../financial/index.php"
             class="active"
@@ -688,6 +1033,15 @@ $invoices =
             <span class="menu-icon">💰</span>
 
             <span>การเงิน</span>
+
+        </a>
+
+
+        <a href="../technician/index.php">
+
+            <span class="menu-icon">👨‍🔧</span>
+
+            <span>จัดการช่าง</span>
 
         </a>
 
@@ -718,16 +1072,21 @@ $invoices =
              HEADER
              ================================================= -->
 
-        <div class="financial-header">
+        <div class="financial-header garage-page-header">
 
             <div>
+
+                <!-- PAGE ICON: decorative icon for this page -->
+                <span class="garage-heading-icon" aria-hidden="true">
+                    <i class="fas fa-file-invoice-dollar"></i>
+                </span>
 
                 <h1>
                     การจัดการการเงิน
                 </h1>
 
                 <p>
-                    สรุปค่าบริการและติดตามสถานะการชำระ
+                    สรุปรายได้ตามวันที่รับชำระ (เวลาไทย) และติดตามยอดค้างชำระ
                 </p>
 
             </div>
@@ -800,29 +1159,6 @@ $invoices =
             </div>
 
 
-            <!-- WEEKLY -->
-
-            <div class="summary-card">
-
-                <div>
-
-                    <span class="summary-label">
-                        รายได้สัปดาห์นี้
-                    </span>
-
-                    <strong>
-                        ฿<?= money($summary["weekly_revenue"]) ?>
-                    </strong>
-
-                </div>
-
-                <div class="summary-icon blue">
-                    ↗
-                </div>
-
-            </div>
-
-
             <!-- MONTHLY -->
 
             <div class="summary-card">
@@ -840,6 +1176,29 @@ $invoices =
                 </div>
 
                 <div class="summary-icon purple">
+                    ↗
+                </div>
+
+            </div>
+
+
+            <!-- YEARLY -->
+
+            <div class="summary-card">
+
+                <div>
+
+                    <span class="summary-label">
+                        รายได้ปีนี้
+                    </span>
+
+                    <strong>
+                        ฿<?= money($summary["yearly_revenue"]) ?>
+                    </strong>
+
+                </div>
+
+                <div class="summary-icon blue">
                     ↗
                 </div>
 
@@ -1081,11 +1440,14 @@ $invoices =
 
                                         <form
                                             method="POST"
-                                            onsubmit="
-                                                return confirm(
-                                                    'ยืนยันว่าลูกค้าชำระเงินแล้วใช่หรือไม่?'
-                                                );
-                                            "
+                                            data-confirm-title="ยืนยันรับชำระเงิน"
+                                            data-confirm-button="ยืนยันรับชำระ"
+                                            data-confirm-message="ตรวจสอบยอดเงินและยืนยันว่าได้รับเงินจากลูกค้าแล้ว"
+                                            data-confirm-details="<?= e(json_encode([
+                                                'เลขใบแจ้งหนี้' => $invoice['invoice_no'],
+                                                'ลูกค้า' => $invoice['full_name'],
+                                                'ยอดรับชำระ' => '฿' . money($invoice['total_amount'])
+                                            ], JSON_UNESCAPED_UNICODE)) ?>"
                                         >
 
                                             <input
@@ -1117,7 +1479,8 @@ $invoices =
                                         class="delete-btn"
                                         onclick="
                                             deleteInvoice(
-                                                <?= $invoice["invoice_id"] ?>
+                                                <?= $invoice["invoice_id"] ?>,
+                                                this
                                             )
                                         "
                                     >
@@ -1206,11 +1569,9 @@ $invoices =
                 name="action"
                 value="create_invoice"
             >
-
-
-            <!-- =============================================
-                 REPAIR JOB
-                 ============================================= -->
+        <!-- =============================================
+            REPAIR JOB
+            ============================================= -->
 
             <div class="form-group">
 
@@ -1219,12 +1580,11 @@ $invoices =
                     <span>*</span>
                 </label>
 
-
                 <select
                     name="repair_order_id"
                     id="repairOrderSelect"
                     required
-                    onchange="loadCustomer(this)"
+                    onchange="loadRepairJob(this)"
                 >
 
                     <option value="">
@@ -1236,8 +1596,37 @@ $invoices =
 
                         <option
                             value="<?= $job["repair_order_id"] ?>"
+
                             data-customer="<?= e(
                                 $job["full_name"]
+                            ) ?>"
+
+                            data-phone="<?= e(
+                                $job["phone"]
+                            ) ?>"
+
+                            data-plate="<?= e(
+                                $job["license_plate"]
+                            ) ?>"
+
+                            data-brand="<?= e(
+                                $job["brand"]
+                            ) ?>"
+
+                            data-model="<?= e(
+                                $job["model"]
+                            ) ?>"
+
+                            data-color="<?= e(
+                                $job["color"]
+                            ) ?>"
+
+                            data-mileage="<?= e(
+                                $job["mileage"]
+                            ) ?>"
+
+                            data-parts-total="<?= e(
+                                $job["parts_total"]
                             ) ?>"
                         >
 
@@ -1257,11 +1646,9 @@ $invoices =
                 </select>
 
             </div>
-
-
             <!-- =============================================
-                 CUSTOMER
-                 ============================================= -->
+            CUSTOMER
+            ============================================= -->
 
             <div class="form-group">
 
@@ -1276,15 +1663,33 @@ $invoices =
                     placeholder="ระบบจะแสดงอัตโนมัติ"
                 >
 
-            </div>
+        </div>
 
 
-            <!-- =============================================
-                 AMOUNT
-                 ============================================= -->
+        <!-- =============================================
+        VEHICLE
+        ============================================= -->
 
-            <div class="amount-grid">
+        <div class="form-group">
 
+        <label>
+            ข้อมูลรถ
+        </label>
+
+        <input
+            type="text"
+            id="vehicleInfo"
+            readonly
+            placeholder="ระบบจะแสดงข้อมูลรถอัตโนมัติ"
+        >
+        </div>
+        <!-- =============================================
+            AMOUNT
+            ============================================= -->
+
+        <div class="amount-grid">
+
+                <!-- ค่าบริการ -->
 
                 <div class="form-group">
 
@@ -1304,7 +1709,7 @@ $invoices =
 
                 </div>
 
-
+                <!-- ค่าอะไหล่ -->
                 <div class="form-group">
 
                     <label>
@@ -1318,33 +1723,10 @@ $invoices =
                         value="0"
                         min="0"
                         step="0.01"
-                        oninput="calculateTotal()"
+                        readonly
                     >
-
                 </div>
-
-
-                <div class="form-group">
-
-                    <label>
-                        ค่าแรงช่าง
-                    </label>
-
-                    <input
-                        type="number"
-                        name="labor_amount"
-                        id="laborAmount"
-                        value="0"
-                        min="0"
-                        step="0.01"
-                        oninput="calculateTotal()"
-                    >
-
-                </div>
-
-            </div>
-
-
+        </div>
             <!-- =============================================
                  TOTAL
                  ============================================= -->
@@ -1551,31 +1933,122 @@ function closeModalOutside(event)
     }
 }
 
-
 // =====================================================
-// LOAD CUSTOMER
+// LOAD REPAIR JOB
 // =====================================================
 
-function loadCustomer(select)
+function loadRepairJob(select)
 {
     const option =
         select.options[
             select.selectedIndex
         ];
 
+
+    // -----------------------------
+    // ข้อมูลลูกค้า
+    // -----------------------------
+
     const customer =
         option.dataset.customer || "";
+
 
     document
         .getElementById("customerName")
         .value = customer;
+
+
+    // -----------------------------
+    // ข้อมูลรถ
+    // -----------------------------
+
+    const plate =
+        option.dataset.plate || "";
+
+    const brand =
+        option.dataset.brand || "";
+
+    const model =
+        option.dataset.model || "";
+
+    const color =
+        option.dataset.color || "";
+
+    const mileage =
+        option.dataset.mileage || "";
+
+
+    let vehicleInfo = "";
+
+
+    if (plate !== "") {
+
+        vehicleInfo +=
+            "ทะเบียน " + plate;
+
+    }
+
+
+    if (brand !== "" || model !== "") {
+
+        vehicleInfo +=
+            " | " +
+            brand +
+            " " +
+            model;
+
+    }
+
+
+    if (color !== "") {
+
+        vehicleInfo +=
+            " | สี " +
+            color;
+
+    }
+
+
+    if (mileage !== "") {
+
+        vehicleInfo +=
+            " | เลขไมล์ " +
+            Number(mileage).toLocaleString("th-TH") +
+            " กม.";
+
+    }
+
+
+    document
+        .getElementById("vehicleInfo")
+        .value = vehicleInfo;
+
+
+    // -----------------------------
+    // ค่าอะไหล่
+    // -----------------------------
+
+    const partsTotal =
+        parseFloat(
+            option.dataset.partsTotal
+        ) || 0;
+
+
+    document
+        .getElementById("partsAmount")
+        .value = partsTotal.toFixed(2);
+
+
+    // -----------------------------
+    // คำนวณยอดรวม
+    // -----------------------------
+
+    calculateTotal();
 }
 
-
-// =====================================================
-// CALCULATE TOTAL
-// =====================================================
-
+//=====================================================
+// CALAULATE TOTAL
+//=====================================================
 function calculateTotal()
 {
     const service =
@@ -1594,16 +2067,8 @@ function calculateTotal()
         ) || 0;
 
 
-    const labor =
-        parseFloat(
-            document.getElementById(
-                "laborAmount"
-            ).value
-        ) || 0;
-
-
     const total =
-        service + parts + labor;
+        service + parts;
 
 
     document
@@ -1619,32 +2084,34 @@ function calculateTotal()
             );
 }
 
-
 // =====================================================
 // DELETE INVOICE
 // =====================================================
 
-function deleteInvoice(invoiceId)
+function deleteInvoice(invoiceId, button)
 {
-    const confirmed =
-        confirm(
-            "คุณต้องการลบใบแจ้งหนี้รายการนี้ใช่หรือไม่?\n\nการลบข้อมูลไม่สามารถย้อนกลับได้"
-        );
+    const cells = button.closest("tr").cells;
 
+    openConfirmation({
+        title: "ลบใบแจ้งหนี้",
+        message: "การลบข้อมูลไม่สามารถย้อนกลับได้ และจะมีผลต่อยอดสรุปการเงิน",
+        button: "ลบใบแจ้งหนี้",
+        danger: true,
+        details: {
+            "เลขใบแจ้งหนี้": cells[0].textContent.trim(),
+            "ลูกค้า": cells[1].textContent.trim(),
+            "ยอดเงิน": cells[4].textContent.trim()
+        }
+    }, function () {
 
-    if (!confirmed) {
-        return;
-    }
+        document
+            .getElementById("deleteInvoiceId")
+            .value = invoiceId;
 
-
-    document
-        .getElementById("deleteInvoiceId")
-        .value = invoiceId;
-
-
-    document
-        .getElementById("deleteForm")
-        .submit();
+        document
+            .getElementById("deleteForm")
+            .submit();
+    });
 }
 
 
@@ -1669,6 +2136,11 @@ document.addEventListener(
 
 </script>
 
+
+<?php require __DIR__ . "/../../includes/confirmation_modal.php"; ?>
+
+<!-- LOGOUT MODAL: shared confirmation for admin and user pages -->
+<?php require_once __DIR__ . "/../../includes/logout_modal.php"; ?>
 
 </body>
 </html>

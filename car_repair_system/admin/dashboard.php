@@ -1,5 +1,4 @@
 <?php
-
 require_once "../config/database.php";
 require_once "../includes/auth.php";
 require_once "../includes/admin_auth.php";
@@ -10,28 +9,35 @@ require_once "../includes/admin_auth.php";
 |--------------------------------------------------------------------------
 */
 // จำนวนการนัดหมายวันนี้
+
 $stmt = $pdo->query("
     SELECT COUNT(*)
     FROM appointments
     WHERE appointment_date = CURDATE()
     AND status = 'scheduled'
 ");
+
 $todayAppointments = $stmt->fetchColumn();
 
 // จำนวนรถทั้งหมด
+
 $stmt = $pdo->query("
     SELECT COUNT(*)
     FROM vehicles
 ");
+
 $totalVehicles = $stmt->fetchColumn();
 
 // จำนวนลูกค้าทั้งหมด
+
 $stmt = $pdo->query("
     SELECT COUNT(*)
     FROM customers
 ");
+
 $totalCustomers = $stmt->fetchColumn();
 // รายรับเดือนนี้
+
 $stmt = $pdo->query("
     SELECT COALESCE(SUM(total_amount), 0)
     FROM invoices
@@ -39,20 +45,25 @@ $stmt = $pdo->query("
     AND MONTH(issue_date) = MONTH(CURDATE())
     AND status <> 'overdue'
 ");
+
 $monthlyIncome = $stmt->fetchColumn();
 // งานซ่อมที่กำลังดำเนินการ
+
 $stmt = $pdo->query("
     SELECT COUNT(*)
     FROM repair_jobs
     WHERE status = 'in_progress'
 ");
+
 $activeRepairJobs = $stmt->fetchColumn();
 // ช่างที่กำลังทำงาน
+
 $stmt = $pdo->query("
     SELECT COUNT(*)
     FROM mechanics
     WHERE status = 'busy'
 ");
+
 $busyMechanics = $stmt->fetchColumn();
 /*
 |--------------------------------------------------------------------------
@@ -79,6 +90,9 @@ $stmt = $pdo->query("
     LIMIT 5
 ");
 
+/*
+ * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+ */
 $upcomingAppointments = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 
@@ -113,6 +127,9 @@ $stmt = $pdo->query("
     LIMIT 5
 ");
 
+/*
+ * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+ */
 $activeJobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 ?>
@@ -128,19 +145,19 @@ $activeJobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <meta name="viewport"
           content="width=device-width, initial-scale=1.0">
 
-    <title>Admin Dashboard | P.Chalermchai Car Service</title>
+    <title>Admin Dashboard | ป.เฉลิมชัย คาร์แคร์ เซอร์วิส</title>
 
     <link rel="stylesheet"
       href="../assets/css/admin/dashboard.css">
 
-          
-</head>
+    <!-- GARAGE THEME: shared navy, gold and warm cream styles -->
+    <link rel="stylesheet" href="../assets/css/garage-theme.css">
 
+</head>
 
 <body>
 
 <div class="app">
-
 
     <!-- =========================================================
          TOP NAVBAR
@@ -149,8 +166,10 @@ $activeJobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <header class="topbar">
 
         <div class="brand">
+            <!-- BRAND LOGO: original garage identity -->
+            <img class="brand-logo" src="../assets/img/logo.jpg" alt="" width="48" height="48">
 
-            P.Chalermchai Car Service
+            ป.เฉลิมชัย คาร์แคร์ เซอร์วิส
 
         </div>
 
@@ -182,7 +201,6 @@ $activeJobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     </header>
 
-
     <!-- =========================================================
          SIDEBAR
     ========================================================== -->
@@ -195,10 +213,9 @@ $activeJobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 href="dashboard.php"
                 class="sidebar-link active"
             >
-                <span>🏠</span>
+                <span>🏡</span>
                 <span>หน้าหลัก</span>
             </a>
-
 
             <a
                 href="customers/index.php"
@@ -216,7 +233,6 @@ $activeJobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <span>การนัดหมาย</span>
             </a>
 
-
             <a
                 href="repair_jobs/index.php"
                 class="sidebar-link"
@@ -225,6 +241,13 @@ $activeJobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <span>ใบงานซ่อม</span>
             </a>
 
+            <a
+                href="financial/index.php"
+                class="sidebar-link"
+            >
+                <span>💰</span>
+                <span>การเงิน</span>
+            </a>
 
             <a
                 href="../admin/technician/index.php"
@@ -232,15 +255,6 @@ $activeJobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
             >
                 <span>👨‍🔧</span>
                 <span>จัดการช่าง</span>
-            </a>
-
-
-            <a
-                href="financial/index.php"
-                class="sidebar-link"
-            >
-                <span>💰</span>
-                <span>การเงิน</span>
             </a>
 
             <a
@@ -255,7 +269,6 @@ $activeJobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     </aside>
 
-
     <!-- =========================================================
          MAIN CONTENT
     ========================================================== -->
@@ -263,9 +276,14 @@ $activeJobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <main class="main-content">
 
 
-        <div class="page-header">
+        <div class="page-header garage-page-header">
 
             <div>
+
+                <!-- PAGE ICON: decorative icon for this page -->
+                <span class="garage-heading-icon" aria-hidden="true">
+                    <i class="fas fa-chart-line"></i>
+                </span>
 
                 <h1>รายงานบริการของเรา</h1>
 
@@ -635,6 +653,9 @@ $activeJobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
     </main>
 
 </div>
+
+<!-- LOGOUT MODAL: shared confirmation for admin and user pages -->
+<?php require_once __DIR__ . "/../includes/logout_modal.php"; ?>
 
 </body>
 

@@ -10,6 +10,40 @@
 require_once "../../includes/admin_auth.php";
 require_once "../../config/database.php";
 
+function validateCustomerAddress(string $province, string $district, string $subdistrict): array
+{
+    if ($province === "" && $district === "" && $subdistrict === "") {
+        return [null, null, null];
+    }
+
+    if ($province === "" || $district === "" || $subdistrict === "") {
+        throw new Exception("กรุณาเลือกจังหวัด อำเภอ/เขต และตำบล/แขวงให้ครบ");
+    }
+
+    $addressData = json_decode(
+        file_get_contents(__DIR__ . "/../../assets/data/thailand-address.json"),
+        true
+    );
+
+    foreach ($addressData as $provinceData) {
+        if ($provinceData["name"] !== $province) {
+            continue;
+        }
+
+        foreach ($provinceData["districts"] as $districtData) {
+            if ($districtData["name"] !== $district) {
+                continue;
+            }
+
+            if (in_array($subdistrict, $districtData["subdistricts"], true)) {
+                return [$province, $district, $subdistrict];
+            }
+        }
+    }
+
+    throw new Exception("ข้อมูลจังหวัด อำเภอ/เขต หรือตำบล/แขวงไม่ถูกต้อง");
+}
+
 /*
 |--------------------------------------------------------------------------
 | ADD CUSTOMER
@@ -32,6 +66,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $phone     = trim($_POST["phone"] ?? "");
             $address   = trim($_POST["address"] ?? "");
             $note      = trim($_POST["note"] ?? "");
+            [$province, $district, $subdistrict] = validateCustomerAddress(
+                trim($_POST["province"] ?? ""),
+                trim($_POST["district"] ?? ""),
+                trim($_POST["subdistrict"] ?? "")
+            );
 
             if ($full_name === "" || $phone === "") {
                 throw new Exception("กรุณากรอกชื่อ-สกุลและเบอร์โทรศัพท์");
@@ -44,9 +83,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
              */
             $sql = "
                 INSERT INTO customers
-                (full_name, phone, address, note)
+                (full_name, phone, address, province, district, subdistrict, note)
                 VALUES
-                (:full_name, :phone, :address, :note)
+                (:full_name, :phone, :address, :province, :district, :subdistrict, :note)
             ";
 
             /*
@@ -61,6 +100,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 ":full_name" => $full_name,
                 ":phone"     => $phone,
                 ":address"   => $address,
+                ":province"  => $province,
+                ":district"  => $district,
+                ":subdistrict" => $subdistrict,
                 ":note"      => $note
             ]);
 
@@ -79,6 +121,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $phone       = trim($_POST["phone"] ?? "");
                 $address     = trim($_POST["address"] ?? "");
                 $note        = trim($_POST["note"] ?? "");
+                [$province, $district, $subdistrict] = validateCustomerAddress(
+                    trim($_POST["province"] ?? ""),
+                    trim($_POST["district"] ?? ""),
+                    trim($_POST["subdistrict"] ?? "")
+                );
 
                 if ($customer_id <= 0) {
                     throw new Exception("ไม่พบข้อมูลลูกค้า");
@@ -99,6 +146,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         full_name = :full_name,
                         phone = :phone,
                         address = :address,
+                        province = :province,
+                        district = :district,
+                        subdistrict = :subdistrict,
                         note = :note
                     WHERE customer_id = :customer_id
                 ";
@@ -115,6 +165,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     ":full_name"   => $full_name,
                     ":phone"       => $phone,
                     ":address"     => $address,
+                    ":province"    => $province,
+                    ":district"    => $district,
+                    ":subdistrict" => $subdistrict,
                     ":note"        => $note,
                     ":customer_id" => $customer_id
                 ]);
@@ -264,6 +317,99 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             header("Location: index.php?tab=vehicles&success=vehicle_updated");
             exit;
         }
+                /* =========================
+           DELETE VEHICLE
+           ========================= */
+        if ($action === "delete_vehicle") {
+
+            $vehicle_id = (int)($_POST["vehicle_id"] ?? 0);
+
+            if ($vehicle_id <= 0) {
+                throw new Exception("ไม่พบข้อมูลรถยนต์");
+            }
+
+            try {
+                $stmt = $pdo->prepare("
+                    DELETE FROM vehicles
+                    WHERE vehicle_id = :vehicle_id
+                ");
+
+                $stmt->execute([
+                    ":vehicle_id" => $vehicle_id
+                ]);
+
+                if ($stmt->rowCount() === 0) {
+                    throw new Exception("ไม่พบรถยนต์ที่ต้องการลบ");
+                }
+
+            } catch (PDOException $e) {
+                throw new Exception(
+                    "ไม่สามารถลบรถยนต์ได้ เนื่องจากอาจมีประวัติงานซ่อมหรือการนัดหมายที่เชื่อมโยงอยู่"
+                );
+            }
+
+            header(
+                "Location: index.php?tab=vehicles&success=vehicle_deleted"
+            );
+            exit;
+        }
+
+        /* =========================
+           DELETE CUSTOMER
+           ========================= */
+        if ($action === "delete_customer") {
+
+            $customer_id = (int)($_POST["customer_id"] ?? 0);
+
+            if ($customer_id <= 0) {
+                throw new Exception("ไม่พบข้อมูลลูกค้า");
+            }
+
+            // ตรวจสอบว่าลูกค้ายังมีรถอยู่หรือไม่
+            $checkStmt = $pdo->prepare("
+                SELECT COUNT(*)
+                FROM vehicles
+                WHERE customer_id = :customer_id
+            ");
+
+            $checkStmt->execute([
+                ":customer_id" => $customer_id
+            ]);
+
+            $vehicleCount = (int)$checkStmt->fetchColumn();
+
+            if ($vehicleCount > 0) {
+                throw new Exception(
+                    "ไม่สามารถลบลูกค้าได้ เนื่องจากลูกค้ายังมีรถยนต์อยู่ในระบบ กรุณาลบรถยนต์ก่อน"
+                );
+            }
+
+            try {
+                $stmt = $pdo->prepare("
+                    DELETE FROM customers
+                    WHERE customer_id = :customer_id
+                ");
+
+                $stmt->execute([
+                    ":customer_id" => $customer_id
+                ]);
+
+                if ($stmt->rowCount() === 0) {
+                    throw new Exception("ไม่พบลูกค้าที่ต้องการลบ");
+                }
+
+            } catch (PDOException $e) {
+                throw new Exception(
+                    "ไม่สามารถลบลูกค้าได้ เนื่องจากอาจมีประวัติงานซ่อมหรือข้อมูลอื่นเชื่อมโยงอยู่"
+                );
+            }
+
+            header(
+                "Location: index.php?success=customer_deleted"
+            );
+            exit;
+        }
+
     } catch (Exception $e) {
 
         header(
@@ -273,138 +419,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         exit;
     }
-}
-/* =========================
-   DELETE CUSTOMER
-   ========================= */
-
-if ($action === "delete_customer") {
-
-    $customer_id = intval($_POST["customer_id"] ?? 0);
-
-    if ($customer_id <= 0) {
-        throw new Exception("ไม่พบข้อมูลลูกค้า");
-    }
-
-    /*
-     * ตรวจสอบก่อนว่าลูกค้ามีรถอยู่หรือไม่
-     */
-
-    /*
-     * ตรงนี้อ่านข้อมูลจาก vehicles (รถยนต์)
-     * เงื่อนไข WHERE ที่ใช้จริง: customer_id = :customer_id
-     * COUNT(*) นับแถว ส่วน COUNT(นิพจน์) นับเฉพาะค่าที่ไม่เป็น NULL จึงใช้ CASE แยกนับสถานะได้
-     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
-     */
-    $checkSql = "
-        SELECT COUNT(*)
-        FROM vehicles
-        WHERE customer_id = :customer_id
-    ";
-
-    /*
-     * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
-     */
-    $checkStmt = $pdo->prepare($checkSql);
-
-    /*
-     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
-     */
-    $checkStmt->execute([
-        ":customer_id" => $customer_id
-    ]);
-
-    /*
-     * อ่านค่าเดียวจากคอลัมน์แรกของแถวถัดไป เหมาะกับ COUNT / SUM หรือการตรวจว่าพบรหัสหรือไม่
-     */
-    $vehicleCount = (int) $checkStmt->fetchColumn();
-
-    if ($vehicleCount > 0) {
-
-        throw new Exception(
-            "ไม่สามารถลบลูกค้าได้ เนื่องจากลูกค้ายังมีรถยนต์อยู่ในระบบ"
-        );
-
-    }
-/* =========================
-   DELETE VEHICLE
-   ========================= */
-
-if ($action === "delete_vehicle") {
-
-    $vehicle_id = intval($_POST["vehicle_id"] ?? 0);
-
-    if ($vehicle_id <= 0) {
-        throw new Exception("ไม่พบข้อมูลรถยนต์");
-    }
-
-
-    /*
-     * ลบข้อมูลรถยนต์
-     */
-
-    /*
-     * ลบแถวออกจาก vehicles (รถยนต์) ตามเงื่อนไขด้านล่าง
-     * เงื่อนไข WHERE ที่ใช้จริง: vehicle_id = :vehicle_id
-     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
-     */
-    $sql = "
-        DELETE FROM vehicles
-        WHERE vehicle_id = :vehicle_id
-    ";
-
-    /*
-     * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
-     */
-    $stmt = $pdo->prepare($sql);
-
-    /*
-     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
-     */
-    $stmt->execute([
-        ":vehicle_id" => $vehicle_id
-    ]);
-
-
-    header(
-        "Location: index.php?tab=vehicles&success=vehicle_deleted"
-    );
-
-    exit;
-}
-
-    /*
-     * ลบข้อมูลลูกค้า
-     */
-
-    /*
-     * ลบแถวออกจาก customers (ลูกค้า) ตามเงื่อนไขด้านล่าง
-     * เงื่อนไข WHERE ที่ใช้จริง: customer_id = :customer_id
-     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
-     */
-    $sql = "
-        DELETE FROM customers
-        WHERE customer_id = :customer_id
-    ";
-
-    /*
-     * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
-     */
-    $stmt = $pdo->prepare($sql);
-
-    /*
-     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
-     */
-    $stmt->execute([
-        ":customer_id" => $customer_id
-    ]);
-
-
-    header(
-        "Location: index.php?success=customer_deleted"
-    );
-
-    exit;
 }
 
 /*
@@ -600,13 +614,13 @@ foreach ($vehicles as $vehicle) {
 <link
     rel="stylesheet"
     href="../../assets/css/admin/customer.css"
->
-
+    >
 
     <link rel="stylesheet" href="../../assets/css/confirmation-modal.css">
 
     <!-- GARAGE THEME: shared navy, gold and warm cream styles -->
     <link rel="stylesheet" href="../../assets/css/garage-theme.css">
+
 
 </head>
 
@@ -813,15 +827,6 @@ foreach ($vehicles as $vehicle) {
 
 <?php endif; ?>
 
-        <?php if (isset($_GET["error"])): ?>
-
-            <div class="alert alert-error">
-
-                <?= htmlspecialchars($_GET["error"]) ?>
-
-            </div>
-
-        <?php endif; ?>
 
 
         <!-- TABS -->
@@ -914,6 +919,15 @@ foreach ($vehicles as $vehicle) {
                                 1
                             );
 
+                        $addressParts = array_filter([
+                            $customer["address"] ?? "",
+                            $customer["subdistrict"] ?? "",
+                            $customer["district"] ?? "",
+                            $customer["province"] ?? ""
+                        ]);
+
+                        $customerAddress = implode(", ", $addressParts);
+
                         ?>
 
                         <div class="customer-card">
@@ -975,10 +989,10 @@ foreach ($vehicles as $vehicle) {
 
 <!-- ADDRESS -->
 
-    <?php if (!empty($customer["address"])): ?>
+    <?php if ($customerAddress !== ""): ?>
         <div class="customer-address">📍
             <?= nl2br(
-                    htmlspecialchars($customer["address"])) ?>
+                    htmlspecialchars($customerAddress)) ?>
         </div>                                    
         <?php endif; ?>                                                        
 <!-- VEHICLES -->
@@ -1253,12 +1267,103 @@ foreach ($vehicles as $vehicle) {
 
             <div class="form-group">
 
+                <label for="addCustomerProvince">
+                    จังหวัด
+                </label>
+
+                <div class="customer-address-combobox">
+                    <input
+                        type="text"
+                        id="addCustomerProvince"
+                        class="customer-address-input"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-controls="addCustomerProvinceOptions"
+                        placeholder="เลือกหรือพิมพ์ค้นหาจังหวัด"
+                        autocomplete="off"
+                        disabled
+                    >
+                    <input type="hidden" name="province" id="addCustomerProvinceValue">
+                    <div
+                        class="customer-address-options"
+                        id="addCustomerProvinceOptions"
+                        role="listbox"
+                    ></div>
+                </div>
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label id="addCustomerDistrictLabel" for="addCustomerDistrict">
+                    อำเภอ / เขต
+                </label>
+
+                <div class="customer-address-combobox" id="addCustomerDistrictWrap">
+                    <input
+                        type="text"
+                        id="addCustomerDistrict"
+                        class="customer-address-input"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-controls="addCustomerDistrictOptions"
+                        placeholder="เลือกหรือพิมพ์ค้นหาอำเภอ / เขต"
+                        autocomplete="off"
+                        disabled
+                    >
+                    <input type="hidden" name="district" id="addCustomerDistrictValue">
+                    <div
+                        class="customer-address-options"
+                        id="addCustomerDistrictOptions"
+                        role="listbox"
+                    ></div>
+                </div>
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label id="addCustomerSubdistrictLabel" for="addCustomerSubdistrict">
+                    ตำบล / แขวง
+                </label>
+
+                <div class="customer-address-combobox" id="addCustomerSubdistrictWrap">
+                    <input
+                        type="text"
+                        id="addCustomerSubdistrict"
+                        class="customer-address-input"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-controls="addCustomerSubdistrictOptions"
+                        placeholder="เลือกหรือพิมพ์ค้นหาตำบล / แขวง"
+                        autocomplete="off"
+                        disabled
+                    >
+                    <input type="hidden" name="subdistrict" id="addCustomerSubdistrictValue">
+                    <div
+                        class="customer-address-options"
+                        id="addCustomerSubdistrictOptions"
+                        role="listbox"
+                    ></div>
+                </div>
+
+            </div>
+
+
+            <div class="form-group">
+
                 <label>
-                    ที่อยู่
+                    รายละเอียดที่อยู่ (บ้านเลขที่ / หมู่ / ซอย / ถนน)
                 </label>
 
                 <textarea
                     name="address"
+                    placeholder="เช่น 123 หมู่ 4 ซอยสุขใจ ถนนประชาราษฎร์"
                 ></textarea>
 
             </div>
@@ -1381,13 +1486,104 @@ foreach ($vehicles as $vehicle) {
 
             <div class="form-group">
 
+                <label for="editCustomerProvince">
+                    จังหวัด
+                </label>
+
+                <div class="customer-address-combobox">
+                    <input
+                        type="text"
+                        id="editCustomerProvince"
+                        class="customer-address-input"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-controls="editCustomerProvinceOptions"
+                        placeholder="เลือกหรือพิมพ์ค้นหาจังหวัด"
+                        autocomplete="off"
+                        disabled
+                    >
+                    <input type="hidden" name="province" id="editCustomerProvinceValue">
+                    <div
+                        class="customer-address-options"
+                        id="editCustomerProvinceOptions"
+                        role="listbox"
+                    ></div>
+                </div>
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label id="editCustomerDistrictLabel" for="editCustomerDistrict">
+                    อำเภอ / เขต
+                </label>
+
+                <div class="customer-address-combobox" id="editCustomerDistrictWrap">
+                    <input
+                        type="text"
+                        id="editCustomerDistrict"
+                        class="customer-address-input"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-controls="editCustomerDistrictOptions"
+                        placeholder="เลือกหรือพิมพ์ค้นหาอำเภอ / เขต"
+                        autocomplete="off"
+                        disabled
+                    >
+                    <input type="hidden" name="district" id="editCustomerDistrictValue">
+                    <div
+                        class="customer-address-options"
+                        id="editCustomerDistrictOptions"
+                        role="listbox"
+                    ></div>
+                </div>
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label id="editCustomerSubdistrictLabel" for="editCustomerSubdistrict">
+                    ตำบล / แขวง
+                </label>
+
+                <div class="customer-address-combobox" id="editCustomerSubdistrictWrap">
+                    <input
+                        type="text"
+                        id="editCustomerSubdistrict"
+                        class="customer-address-input"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded="false"
+                        aria-controls="editCustomerSubdistrictOptions"
+                        placeholder="เลือกหรือพิมพ์ค้นหาตำบล / แขวง"
+                        autocomplete="off"
+                        disabled
+                    >
+                    <input type="hidden" name="subdistrict" id="editCustomerSubdistrictValue">
+                    <div
+                        class="customer-address-options"
+                        id="editCustomerSubdistrictOptions"
+                        role="listbox"
+                    ></div>
+                </div>
+
+            </div>
+
+
+            <div class="form-group">
+
                 <label>
-                    ที่อยู่
+                    รายละเอียดที่อยู่ (บ้านเลขที่ / หมู่ / ซอย / ถนน)
                 </label>
 
                 <textarea
                     name="address"
                     id="editCustomerAddress"
+                    placeholder="เช่น 123 หมู่ 4 ซอยสุขใจ ถนนประชาราษฎร์"
                 ></textarea>
 
             </div>
@@ -1795,6 +1991,8 @@ foreach ($vehicles as $vehicle) {
 
 function openCustomerModal() {
 
+    setCustomerAddressLocation("add", "", "", "");
+
     document
         .getElementById("customerModal")
         .classList.add("show");
@@ -1808,6 +2006,499 @@ function closeCustomerModal() {
         .getElementById("customerModal")
         .classList.remove("show");
 
+}
+
+
+let customerAddressData = [];
+const customerAddressForms = {};
+
+const customerAddressDataPromise = fetch("../../assets/data/thailand-address.json")
+    .then(function (response) {
+
+        if (!response.ok) {
+            throw new Error("ไม่สามารถโหลดข้อมูลพื้นที่ได้");
+        }
+
+        return response.json();
+
+    })
+    .then(function (data) {
+
+        customerAddressData = data;
+
+        initializeCustomerAddressForm("add");
+        initializeCustomerAddressForm("edit");
+
+        document.addEventListener("click", function (event) {
+
+            Object.values(customerAddressForms).forEach(function (form) {
+
+                Object.values(form.combos).forEach(function (combo) {
+
+                    if (!combo.wrapper.contains(event.target)) {
+                        closeCustomerAddressCombo(combo);
+                    }
+
+                });
+
+            });
+
+        });
+
+        return data;
+
+    })
+    .catch(function (error) {
+
+        console.error(error);
+
+        ["add", "edit"].forEach(function (prefix) {
+
+            ["Province", "District", "Subdistrict"].forEach(function (level) {
+                document.getElementById(prefix + "Customer" + level).disabled = true;
+            });
+
+        });
+
+        return [];
+
+    });
+
+
+function customerAddressItemName(item) {
+
+    return typeof item === "string" ? item : item.name;
+}
+
+
+function renderCustomerAddressOptions(combo, searchText = "") {
+
+    const normalizedSearch = searchText.trim().toLocaleLowerCase();
+    const filteredItems = combo.items.filter(function (item) {
+        return customerAddressItemName(item)
+            .toLocaleLowerCase()
+            .includes(normalizedSearch);
+    });
+
+    combo.list.innerHTML = "";
+    combo.activeIndex = -1;
+
+    if (filteredItems.length === 0) {
+
+        const emptyOption = document.createElement("div");
+        emptyOption.className = "customer-address-no-results";
+        emptyOption.textContent = "ไม่พบรายการที่ค้นหา";
+        combo.list.appendChild(emptyOption);
+
+        return;
+    }
+
+    filteredItems.forEach(function (item, index) {
+
+        const value = customerAddressItemName(item);
+        const option = document.createElement("button");
+        option.type = "button";
+        option.className = "customer-address-option";
+        option.id = combo.list.id + "Option" + index;
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-selected", value === combo.valueInput.value ? "true" : "false");
+        option.textContent = value;
+
+        if (value === combo.valueInput.value) {
+            option.classList.add("is-selected");
+        }
+
+        option.addEventListener("mousedown", function (event) {
+            event.preventDefault();
+        });
+
+        option.addEventListener("click", function () {
+            selectCustomerAddressOption(combo, value);
+        });
+
+        combo.list.appendChild(option);
+
+    });
+}
+
+
+function openCustomerAddressCombo(combo) {
+
+    if (combo.input.disabled) {
+        return;
+    }
+
+    const searchText = combo.valueInput.value !== ""
+        && combo.input.value === combo.selectedText
+        ? ""
+        : combo.input.value;
+
+    renderCustomerAddressOptions(combo, searchText);
+    combo.list.classList.add("is-open");
+    combo.input.setAttribute("aria-expanded", "true");
+}
+
+
+function closeCustomerAddressCombo(combo) {
+
+    combo.list.classList.remove("is-open");
+    combo.input.setAttribute("aria-expanded", "false");
+    combo.input.removeAttribute("aria-activedescendant");
+    combo.activeIndex = -1;
+
+    if (combo.valueInput.value !== "") {
+        combo.input.value = combo.selectedText;
+    }
+}
+
+
+function moveCustomerAddressActiveOption(combo, direction) {
+
+    if (!combo.list.classList.contains("is-open")) {
+        openCustomerAddressCombo(combo);
+    }
+
+    const options = Array.from(
+        combo.list.querySelectorAll(".customer-address-option")
+    );
+
+    if (options.length === 0) {
+        return;
+    }
+
+    if (combo.activeIndex === -1) {
+        combo.activeIndex = direction > 0 ? 0 : options.length - 1;
+    } else {
+        combo.activeIndex = (combo.activeIndex + direction + options.length) % options.length;
+    }
+
+    options.forEach(function (option, index) {
+        option.classList.toggle("is-active", index === combo.activeIndex);
+    });
+
+    combo.input.setAttribute(
+        "aria-activedescendant",
+        options[combo.activeIndex].id
+    );
+
+    options[combo.activeIndex].scrollIntoView({ block: "nearest" });
+}
+
+
+function selectCustomerAddressOption(combo, value) {
+
+    const previousValue = combo.valueInput.value;
+
+    combo.valueInput.value = value;
+    combo.input.value = value;
+    combo.selectedText = value;
+    combo.input.setCustomValidity("");
+
+    closeCustomerAddressCombo(combo);
+
+    if (previousValue !== value) {
+        combo.onSelect(value);
+    }
+
+    syncCustomerAddressRequired(combo.prefix);
+}
+
+
+function clearCustomerAddressCombo(combo) {
+
+    combo.valueInput.value = "";
+    combo.input.value = "";
+    combo.selectedText = "";
+    combo.input.setCustomValidity("");
+    closeCustomerAddressCombo(combo);
+}
+
+
+function syncCustomerAddressRequired(prefix) {
+
+    const form = customerAddressForms[prefix];
+
+    if (!form) {
+        return;
+    }
+
+    const combos = Object.values(form.combos);
+    const hasSelection = combos.some(function (combo) {
+        return combo.valueInput.value !== "" || combo.input.value.trim() !== "";
+    });
+
+    combos.forEach(function (combo) {
+
+        combo.input.required = hasSelection;
+
+        if (hasSelection && combo.valueInput.value === "") {
+            combo.input.setCustomValidity("กรุณาเลือกข้อมูลจากรายการ");
+        } else {
+            combo.input.setCustomValidity("");
+        }
+
+    });
+}
+
+
+function createCustomerAddressCombo(prefix, level, placeholder) {
+
+    const input = document.getElementById(prefix + "Customer" + level);
+    const valueInput = document.getElementById(prefix + "Customer" + level + "Value");
+    const list = document.getElementById(prefix + "Customer" + level + "Options");
+
+    const combo = {
+        prefix: prefix,
+        level: level,
+        input: input,
+        valueInput: valueInput,
+        list: list,
+        wrapper: input.closest(".customer-address-combobox"),
+        placeholder: placeholder,
+        items: [],
+        selectedText: "",
+        activeIndex: -1,
+        onSelect: function () {},
+        onClear: function () {}
+    };
+
+    input.addEventListener("focus", function () {
+
+        if (combo.valueInput.value !== "") {
+            input.select();
+        }
+
+        openCustomerAddressCombo(combo);
+    });
+
+    input.addEventListener("click", function () {
+
+        if (!combo.list.classList.contains("is-open")) {
+            openCustomerAddressCombo(combo);
+        }
+
+    });
+
+    input.addEventListener("input", function () {
+
+        if (combo.valueInput.value !== "" && input.value !== combo.selectedText) {
+            combo.valueInput.value = "";
+            combo.selectedText = "";
+            combo.onClear();
+        }
+
+        renderCustomerAddressOptions(combo, input.value);
+        combo.list.classList.add("is-open");
+        input.setAttribute("aria-expanded", "true");
+        syncCustomerAddressRequired(prefix);
+
+    });
+
+    input.addEventListener("keydown", function (event) {
+
+        if (event.key === "ArrowDown") {
+            event.preventDefault();
+
+            if (!combo.list.classList.contains("is-open")) {
+                openCustomerAddressCombo(combo);
+            }
+
+            moveCustomerAddressActiveOption(combo, 1);
+        } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+
+            if (!combo.list.classList.contains("is-open")) {
+                openCustomerAddressCombo(combo);
+            }
+
+            moveCustomerAddressActiveOption(combo, -1);
+        } else if (event.key === "Enter" && combo.list.classList.contains("is-open")) {
+
+            event.preventDefault();
+
+            const options = Array.from(
+                combo.list.querySelectorAll(".customer-address-option")
+            );
+
+            if (combo.activeIndex >= 0 && options[combo.activeIndex]) {
+                options[combo.activeIndex].click();
+            } else if (options.length === 1) {
+                options[0].click();
+            }
+
+        } else if (event.key === "Escape") {
+            closeCustomerAddressCombo(combo);
+        }
+
+    });
+
+    input.addEventListener("blur", function () {
+
+        window.setTimeout(function () {
+            closeCustomerAddressCombo(combo);
+        }, 120);
+
+    });
+
+    return combo;
+}
+
+
+function initializeCustomerAddressForm(prefix) {
+
+    const province = createCustomerAddressCombo(
+        prefix,
+        "Province",
+        "เลือกหรือพิมพ์ค้นหาจังหวัด"
+    );
+    const district = createCustomerAddressCombo(
+        prefix,
+        "District",
+        "เลือกหรือพิมพ์ค้นหาอำเภอ / เขต"
+    );
+    const subdistrict = createCustomerAddressCombo(
+        prefix,
+        "Subdistrict",
+        "เลือกหรือพิมพ์ค้นหาตำบล / แขวง"
+    );
+
+    customerAddressForms[prefix] = {
+        combos: {
+            province: province,
+            district: district,
+            subdistrict: subdistrict
+        }
+    };
+
+    province.items = customerAddressData;
+    province.input.disabled = false;
+
+    province.onClear = function () {
+        updateCustomerAddressDistricts(prefix, "");
+    };
+
+    province.onSelect = function (value) {
+        updateCustomerAddressDistricts(prefix, value);
+    };
+
+    district.onClear = function () {
+        updateCustomerAddressSubdistricts(prefix, "");
+    };
+
+    district.onSelect = function (value) {
+        updateCustomerAddressSubdistricts(prefix, value);
+    };
+
+    subdistrict.onClear = function () {
+        syncCustomerAddressRequired(prefix);
+    };
+
+    subdistrict.onSelect = function () {
+        syncCustomerAddressRequired(prefix);
+    };
+
+    syncCustomerAddressRequired(prefix);
+}
+
+
+function updateCustomerAddressDistricts(prefix, provinceName) {
+
+    const form = customerAddressForms[prefix];
+    const district = form.combos.district;
+    const subdistrict = form.combos.subdistrict;
+    const selectedProvince = customerAddressData.find(function (item) {
+        return item.name === provinceName;
+    });
+    const isBangkok = provinceName === "กรุงเทพมหานคร";
+
+    document.getElementById(prefix + "CustomerDistrictLabel").textContent =
+        isBangkok ? "เขต" : "อำเภอ";
+
+    document.getElementById(prefix + "CustomerSubdistrictLabel").textContent =
+        isBangkok ? "แขวง" : "ตำบล";
+
+    district.input.placeholder = isBangkok
+        ? "เลือกหรือพิมพ์ค้นหาเขต"
+        : "เลือกหรือพิมพ์ค้นหาอำเภอ";
+
+    subdistrict.input.placeholder = isBangkok
+        ? "เลือกหรือพิมพ์ค้นหาแขวง"
+        : "เลือกหรือพิมพ์ค้นหาตำบล";
+
+    district.items = selectedProvince ? selectedProvince.districts : [];
+    district.input.disabled = !selectedProvince;
+
+    clearCustomerAddressCombo(district);
+    updateCustomerAddressSubdistricts(prefix, "");
+    syncCustomerAddressRequired(prefix);
+}
+
+
+function updateCustomerAddressSubdistricts(prefix, districtName) {
+
+    const form = customerAddressForms[prefix];
+    const provinceName = form.combos.province.valueInput.value;
+    const district = form.combos.district;
+    const subdistrict = form.combos.subdistrict;
+    const selectedProvince = customerAddressData.find(function (item) {
+        return item.name === provinceName;
+    });
+    const selectedDistrict = selectedProvince
+        ? selectedProvince.districts.find(function (item) {
+            return item.name === districtName;
+        })
+        : null;
+
+    subdistrict.items = selectedDistrict ? selectedDistrict.subdistricts : [];
+    subdistrict.input.disabled = !selectedDistrict;
+
+    clearCustomerAddressCombo(subdistrict);
+    syncCustomerAddressRequired(prefix);
+}
+
+
+function setCustomerAddressLocation(prefix, provinceName, districtName, subdistrictName) {
+
+    customerAddressDataPromise.then(function () {
+
+        const form = customerAddressForms[prefix];
+
+        if (!form) {
+            return;
+        }
+
+        const province = form.combos.province;
+        const district = form.combos.district;
+        const subdistrict = form.combos.subdistrict;
+
+        clearCustomerAddressCombo(province);
+        clearCustomerAddressCombo(district);
+        clearCustomerAddressCombo(subdistrict);
+
+        if (provinceName) {
+            province.valueInput.value = provinceName;
+            province.input.value = provinceName;
+            province.selectedText = provinceName;
+        }
+
+        updateCustomerAddressDistricts(prefix, provinceName || "");
+
+        if (districtName) {
+            district.valueInput.value = districtName;
+            district.input.value = districtName;
+            district.selectedText = districtName;
+            updateCustomerAddressSubdistricts(prefix, districtName);
+        }
+
+        if (subdistrictName) {
+            subdistrict.valueInput.value = subdistrictName;
+            subdistrict.input.value = subdistrictName;
+            subdistrict.selectedText = subdistrictName;
+        }
+
+        syncCustomerAddressRequired(prefix);
+
+    });
 }
 
 
@@ -1858,6 +2549,13 @@ function openEditCustomerModal(customer) {
 
     document.getElementById("editCustomerAddress").value =
         customer.address || "";
+
+    setCustomerAddressLocation(
+        "edit",
+        customer.province || "",
+        customer.district || "",
+        customer.subdistrict || ""
+    );
 
     document.getElementById("editCustomerNote").value =
         customer.note || "";

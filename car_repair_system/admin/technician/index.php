@@ -1,4 +1,11 @@
 <?php
+/*
+ * ภาพรวมการทำงานกับข้อมูลของไฟล์นี้
+ * ช่างผูกกับ users ผ่าน user_id ส่วนทักษะหลายรายการเก็บผ่าน mechanic_skills
+ * แก้ข้อมูลช่าง/บัญชี/ทักษะใน transaction เดียวกัน เพื่อไม่ให้บันทึกสำเร็จแค่บางตาราง
+ * ตารางช่าง LEFT JOIN ใบงานแล้ว COUNT CASE แยกงานค้างกับ completed ต่อช่างแต่ละคน
+ * ก่อนลบช่างตรวจจำนวนใบงานที่อ้างถึงก่อน แล้วจึงลบทักษะ ช่าง และบัญชีตามลำดับในโค้ด
+ */
 
 require_once "../../includes/admin_auth.php";
 require_once "../../config/database.php";
@@ -49,223 +56,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     */
 
     if ($action === "add") {
-
-    $userId = (int)($_POST["user_id"] ?? 0);
-    $fullName = trim($_POST["full_name"] ?? "");
-    $phone = trim($_POST["phone"] ?? "");
-    $status = $_POST["status"] ?? "available";
-    $skills = $_POST["skills"] ?? [];
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | Validate
-    |--------------------------------------------------------------------------
-    */
-
-    if ($userId <= 0 || $fullName === "") {
-
-        redirectWithMessage(
-            "error",
-            "กรุณาเลือกผู้ใช้งานและกรอกชื่อช่าง"
-        );
+        redirectWithMessage('error', 'กรุณาสร้างบัญชีและกำหนดบทบาทช่างจากหน้าบัญชีผู้ใช้');
     }
-
-
-    $allowedStatuses = [
-        "available",
-        "busy",
-        "inactive"
-    ];
-
-    if (!in_array($status, $allowedStatuses, true)) {
-
-        $status = "available";
-    }
-
-
-    try {
-
-        $pdo->beginTransaction();
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Check User
-        |--------------------------------------------------------------------------
-        */
-
-        $stmt = $pdo->prepare("
-            SELECT
-                user_id,
-                username
-            FROM users
-            WHERE user_id = ?
-            LIMIT 1
-        ");
-
-        $stmt->execute([
-            $userId
-        ]);
-
-        $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
-
-        if (!$user) {
-
-            throw new Exception(
-                "ไม่พบผู้ใช้งานที่เลือก"
-            );
-        }
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Check Already Mechanic
-        |--------------------------------------------------------------------------
-        */
-
-        $stmt = $pdo->prepare("
-            SELECT mechanic_id
-            FROM mechanics
-            WHERE user_id = ?
-            LIMIT 1
-        ");
-
-        $stmt->execute([
-            $userId
-        ]);
-
-
-        if ($stmt->fetch()) {
-
-            throw new Exception(
-                "ผู้ใช้งานนี้ถูกเพิ่มเป็นช่างแล้ว"
-            );
-        }
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Change User Role
-        |--------------------------------------------------------------------------
-        */
-
-        $stmt = $pdo->prepare("
-            UPDATE users
-            SET role = 'mechanic'
-            WHERE user_id = ?
-        ");
-
-        $stmt->execute([
-            $userId
-        ]);
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Create Mechanic
-        |--------------------------------------------------------------------------
-        */
-
-        $stmt = $pdo->prepare("
-            INSERT INTO mechanics
-            (
-                user_id,
-                full_name,
-                phone,
-                status
-            )
-            VALUES
-            (
-                :user_id,
-                :full_name,
-                :phone,
-                :status
-            )
-        ");
-
-        $stmt->execute([
-            ":user_id" => $userId,
-            ":full_name" => $fullName,
-            ":phone" => $phone !== "" ? $phone : null,
-            ":status" => $status
-        ]);
-
-
-        $mechanicId = $pdo->lastInsertId();
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | Insert Skills
-        |--------------------------------------------------------------------------
-        */
-
-        if (!empty($skills)) {
-
-            $stmt = $pdo->prepare("
-                INSERT INTO mechanic_skills
-                (
-                    mechanic_id,
-                    skill_id
-                )
-                VALUES
-                (
-                    :mechanic_id,
-                    :skill_id
-                )
-            ");
-
-
-            foreach ($skills as $skillId) {
-
-                $skillId = (int)$skillId;
-
-
-                if ($skillId <= 0) {
-                    continue;
-                }
-
-
-                $stmt->execute([
-                    ":mechanic_id" => $mechanicId,
-                    ":skill_id" => $skillId
-                ]);
-            }
-        }
-
-
-        $pdo->commit();
-
-
-        redirectWithMessage(
-            "success",
-            "เพิ่มช่างเรียบร้อยแล้ว Username คือ {$user["username"]}"
-        );
-
-
-    } catch (Exception $e) {
-
-        if ($pdo->inTransaction()) {
-
-            $pdo->rollBack();
-        }
-
-
-        redirectWithMessage(
-            "error",
-            "ไม่สามารถเพิ่มช่างได้: " . $e->getMessage()
-        );
-    }
-}
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | EDIT TECHNICIAN
-    |--------------------------------------------------------------------------
-    */
 
     if ($action === "edit") {
 
@@ -301,6 +93,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         try {
 
+            /*
+             * เริ่ม transaction: คำสั่งที่ตามมาต้องสำเร็จเป็นชุด หรือย้อนกลับเป็นชุดเมื่อผิดพลาด
+             */
             $pdo->beginTransaction();
 
 
@@ -310,6 +105,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             |--------------------------------------------------------------------------
             */
 
+            /*
+             * ตรงนี้อ่านข้อมูลจาก mechanics (ช่าง)
+             * เงื่อนไข WHERE ที่ใช้จริง: mechanic_id = ? 
+             * เอาผลลัพธ์ไม่เกิน 1 แถว ตามลำดับที่ query กำหนด
+             * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+             */
             $stmt = $pdo->prepare("
                 SELECT user_id
                 FROM mechanics
@@ -317,8 +118,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 LIMIT 1
             ");
 
+            /*
+             * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+             */
             $stmt->execute([$mechanicId]);
 
+            /*
+             * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+             */
             $mechanic = $stmt->fetch(PDO::FETCH_ASSOC);
 
 
@@ -336,6 +143,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             |--------------------------------------------------------------------------
             */
 
+            /*
+             * แก้ข้อมูลเดิมใน mechanics (ช่าง) โดยเปลี่ยนเฉพาะคอลัมน์หลัง SET
+             * เงื่อนไข WHERE ที่ใช้จริง: mechanic_id = :mechanic_id
+             * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+             */
             $stmt = $pdo->prepare("
                 UPDATE mechanics
                 SET
@@ -345,6 +157,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 WHERE mechanic_id = :mechanic_id
             ");
 
+            /*
+             * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+             */
             $stmt->execute([
                 ":full_name" => $fullName,
                 ":phone" => $phone !== "" ? $phone : null,
@@ -366,12 +181,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     PASSWORD_DEFAULT
                 );
 
+                /*
+                 * แก้ข้อมูลเดิมใน users (บัญชีผู้ใช้) โดยเปลี่ยนเฉพาะคอลัมน์หลัง SET
+                 * เงื่อนไข WHERE ที่ใช้จริง: user_id = ?
+                 * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+                 */
                 $stmt = $pdo->prepare("
                     UPDATE users
                     SET password = ?
                     WHERE user_id = ?
                 ");
 
+                /*
+                 * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+                 */
                 $stmt->execute([
                     $hashedPassword,
                     $mechanic["user_id"]
@@ -385,16 +208,29 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             |--------------------------------------------------------------------------
             */
 
+            /*
+             * ลบแถวออกจาก mechanic_skills (ตารางเชื่อมช่างกับทักษะ) ตามเงื่อนไขด้านล่าง
+             * เงื่อนไข WHERE ที่ใช้จริง: mechanic_id = ?
+             * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+             */
             $stmt = $pdo->prepare("
                 DELETE FROM mechanic_skills
                 WHERE mechanic_id = ?
             ");
 
+            /*
+             * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+             */
             $stmt->execute([$mechanicId]);
 
 
             if (!empty($skills)) {
 
+                /*
+                 * เพิ่มแถวใหม่ลง mechanic_skills (ตารางเชื่อมช่างกับทักษะ)
+                 * ค่าหลัง VALUES ต้องตรงกับลำดับคอลัมน์ที่ระบุ ไม่ได้แก้แถวเก่าที่มีอยู่
+                 * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+                 */
                 $stmt = $pdo->prepare("
                     INSERT INTO mechanic_skills
                     (
@@ -416,6 +252,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         continue;
                     }
 
+                    /*
+                     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+                     */
                     $stmt->execute([
                         ":mechanic_id" => $mechanicId,
                         ":skill_id" => $skillId
@@ -424,6 +263,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             }
 
 
+            /*
+             * ยืนยันการเปลี่ยนแปลงทั้งหมดใน transaction นี้ลงฐานข้อมูล
+             */
             $pdo->commit();
 
 
@@ -436,6 +278,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         } catch (Exception $e) {
 
             if ($pdo->inTransaction()) {
+                /*
+                 * ถ้างานพลาด ให้ย้อนการเปลี่ยนแปลงใน transaction นี้ เพื่อไม่ให้ข้อมูลค้างครึ่งชุด
+                 */
                 $pdo->rollBack();
             }
 
@@ -477,12 +322,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
 
 
+        /*
+         * แก้ข้อมูลเดิมใน mechanics (ช่าง) โดยเปลี่ยนเฉพาะคอลัมน์หลัง SET
+         * เงื่อนไข WHERE ที่ใช้จริง: mechanic_id = ?
+         * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+         */
         $stmt = $pdo->prepare("
             UPDATE mechanics
             SET status = ?
             WHERE mechanic_id = ?
         ");
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $stmt->execute([
             $status,
             $mechanicId
@@ -536,14 +389,26 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             |--------------------------------------------------------------------------
             */
 
+            /*
+             * ตรงนี้อ่านข้อมูลจาก repair_jobs (ใบงานซ่อม)
+             * เงื่อนไข WHERE ที่ใช้จริง: mechanic_id = ?
+             * COUNT(*) นับแถว ส่วน COUNT(นิพจน์) นับเฉพาะค่าที่ไม่เป็น NULL จึงใช้ CASE แยกนับสถานะได้
+             * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+             */
             $stmt = $pdo->prepare("
                 SELECT COUNT(*)
                 FROM repair_jobs
                 WHERE mechanic_id = ?
             ");
 
+            /*
+             * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+             */
             $stmt->execute([$mechanicId]);
 
+            /*
+             * อ่านค่าเดียวจากคอลัมน์แรกของแถวถัดไป เหมาะกับ COUNT / SUM หรือการตรวจว่าพบรหัสหรือไม่
+             */
             $repairCount = (int) $stmt->fetchColumn();
 
 
@@ -556,6 +421,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             }
 
 
+            /*
+             * เริ่ม transaction: คำสั่งที่ตามมาต้องสำเร็จเป็นชุด หรือย้อนกลับเป็นชุดเมื่อผิดพลาด
+             */
             $pdo->beginTransaction();
 
 
@@ -565,6 +433,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             |--------------------------------------------------------------------------
             */
 
+            /*
+             * ตรงนี้อ่านข้อมูลจาก mechanics (ช่าง)
+             * เงื่อนไข WHERE ที่ใช้จริง: mechanic_id = ? 
+             * เอาผลลัพธ์ไม่เกิน 1 แถว ตามลำดับที่ query กำหนด
+             * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+             */
             $stmt = $pdo->prepare("
                 SELECT user_id
                 FROM mechanics
@@ -572,8 +446,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 LIMIT 1
             ");
 
+            /*
+             * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+             */
             $stmt->execute([$mechanicId]);
 
+            /*
+             * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+             */
             $mechanic = $stmt->fetch(PDO::FETCH_ASSOC);
 
 
@@ -591,11 +471,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             |--------------------------------------------------------------------------
             */
 
+            /*
+             * ลบแถวออกจาก mechanic_skills (ตารางเชื่อมช่างกับทักษะ) ตามเงื่อนไขด้านล่าง
+             * เงื่อนไข WHERE ที่ใช้จริง: mechanic_id = ?
+             * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+             */
             $stmt = $pdo->prepare("
                 DELETE FROM mechanic_skills
                 WHERE mechanic_id = ?
             ");
 
+            /*
+             * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+             */
             $stmt->execute([$mechanicId]);
 
 
@@ -605,11 +493,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             |--------------------------------------------------------------------------
             */
 
+            /*
+             * ลบแถวออกจาก mechanics (ช่าง) ตามเงื่อนไขด้านล่าง
+             * เงื่อนไข WHERE ที่ใช้จริง: mechanic_id = ?
+             * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+             */
             $stmt = $pdo->prepare("
                 DELETE FROM mechanics
                 WHERE mechanic_id = ?
             ");
 
+            /*
+             * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+             */
             $stmt->execute([$mechanicId]);
 
 
@@ -619,17 +515,28 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             |--------------------------------------------------------------------------
             */
 
+            /*
+             * ลบแถวออกจาก users (บัญชีผู้ใช้) ตามเงื่อนไขด้านล่าง
+             * เงื่อนไข WHERE ที่ใช้จริง: user_id = ? AND role = 'mechanic'
+             * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+             */
             $stmt = $pdo->prepare("
                 DELETE FROM users
                 WHERE user_id = ?
                 AND role = 'mechanic'
             ");
 
+            /*
+             * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+             */
             $stmt->execute([
                 $mechanic["user_id"]
             ]);
 
 
+            /*
+             * ยืนยันการเปลี่ยนแปลงทั้งหมดใน transaction นี้ลงฐานข้อมูล
+             */
             $pdo->commit();
 
 
@@ -642,6 +549,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         } catch (Exception $e) {
 
             if ($pdo->inTransaction()) {
+                /*
+                 * ถ้างานพลาด ให้ย้อนการเปลี่ยนแปลงใน transaction นี้ เพื่อไม่ให้ข้อมูลค้างครึ่งชุด
+                 */
                 $pdo->rollBack();
             }
 
@@ -660,6 +570,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 |--------------------------------------------------------------------------
 */
 
+/*
+ * ตรงนี้อ่านข้อมูลจาก skills (ทักษะช่าง)
+ * เรียงตาม: skill_name ASC
+ * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+ */
 $stmt = $pdo->query("
     SELECT
         skill_id,
@@ -669,32 +584,29 @@ $stmt = $pdo->query("
     ORDER BY skill_name ASC
 ");
 
+/*
+ * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+ */
 $skillsList = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-/*
-|--------------------------------------------------------------------------
-| Get Available Users
-|--------------------------------------------------------------------------
-*/
 
-$stmt = $pdo->query("
-    SELECT
-        u.user_id,
-        u.username
-    FROM users u
-    LEFT JOIN mechanics m
-        ON u.user_id = m.user_id
-    WHERE m.user_id IS NULL
-    ORDER BY u.username ASC
-");
 
-$availableUsers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 /*
 |--------------------------------------------------------------------------
 | Get Mechanics
 |--------------------------------------------------------------------------
 */
+/*
+ * ตรงนี้อ่านข้อมูลจาก mechanics (ช่าง), users (บัญชีผู้ใช้), repair_jobs (ใบงานซ่อม)
+ * JOIN / INNER JOIN เอาเฉพาะแถวที่จับคู่ได้ตาม ON เช่น รหัสลูกค้าหรือรหัสรถตรงกัน
+ * LEFT JOIN ยังเก็บแถวฝั่งซ้ายไว้แม้ฝั่งขวาไม่มีคู่ คอลัมน์ของฝั่งขวาจะเป็น NULL
+ * IN คือรับค่าที่อยู่ในชุดที่ระบุ ถ้าเป็นชุด ? ให้ส่งค่าตามจำนวนและลำดับ placeholder
+ * COUNT(*) นับแถว ส่วน COUNT(นิพจน์) นับเฉพาะค่าที่ไม่เป็น NULL จึงใช้ CASE แยกนับสถานะได้
+ * จัดกลุ่มก่อนคำนวณยอด/จำนวนด้วย GROUP BY: m.mechanic_id, m.user_id, u.username, m.full_name, m.phone, m.status 
+ * เรียงตาม: m.mechanic_id DESC
+ * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+ */
 $stmt = $pdo->query("
     SELECT
         m.mechanic_id,
@@ -706,7 +618,7 @@ $stmt = $pdo->query("
 
         COUNT(
             CASE
-                WHEN rj.status IN ('waiting', 'in_progress')
+                WHEN rj.status IN ('waiting', 'in_progress', 'awaiting_review')
                 THEN 1
             END
         ) AS active_jobs,
@@ -737,6 +649,9 @@ $stmt = $pdo->query("
     ORDER BY m.mechanic_id DESC
 ");
 
+/*
+ * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+ */
 $mechanics = $stmt->fetchAll(PDO::FETCH_ASSOC); 
 
 
@@ -750,6 +665,12 @@ $mechanicSkills = [];
 
 if (!empty($mechanics)) {
 
+    /*
+     * ตรงนี้อ่านข้อมูลจาก mechanic_skills (ตารางเชื่อมช่างกับทักษะ), skills (ทักษะช่าง)
+     * JOIN / INNER JOIN เอาเฉพาะแถวที่จับคู่ได้ตาม ON เช่น รหัสลูกค้าหรือรหัสรถตรงกัน
+     * เรียงตาม: s.skill_name ASC
+     * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+     */
     $stmt = $pdo->query("
         SELECT
             ms.mechanic_id,
@@ -763,6 +684,9 @@ if (!empty($mechanics)) {
         ORDER BY s.skill_name ASC
     ");
 
+    /*
+     * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+     */
     $skillRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 
@@ -804,7 +728,7 @@ $statusLabels = [
     >
 
     <title>
-        จัดการช่าง | P.Chalermchai Car Service
+        จัดการช่าง | ป.เฉลิมชัย คาร์แคร์ เซอร์วิส
     </title>
 
 
@@ -831,6 +755,10 @@ $statusLabels = [
         href="../../assets/css/admin/technician.css"
     >
 
+    <!-- GARAGE THEME: shared navy, gold and warm cream styles -->
+    <link rel="stylesheet" href="../../assets/css/garage-theme.css">
+
+
 </head>
 
 
@@ -844,7 +772,9 @@ $statusLabels = [
 <header class="topbar">
 
     <div class="brand">
-        P.Chalermchai Car Service
+            <!-- BRAND LOGO: original garage identity -->
+            <img class="brand-logo" src="../../assets/img/logo.jpg" alt="" width="48" height="48">
+        ป.เฉลิมชัย คาร์แคร์ เซอร์วิส
     </div>
 
 
@@ -919,6 +849,15 @@ $statusLabels = [
         </a>
 
 
+        <a href="../financial/index.php">
+
+            <span class="menu-icon">💰</span>
+
+            <span>การเงิน</span>
+
+        </a>
+
+
         <a
             href="../technician/index.php"
             class="active"
@@ -927,15 +866,6 @@ $statusLabels = [
             <span class="menu-icon">👨‍🔧</span>
 
             <span>จัดการช่าง</span>
-
-        </a>
-
-
-        <a href="../financial/index.php">
-
-            <span class="menu-icon">💰</span>
-
-            <span>การเงิน</span>
 
         </a>
 
@@ -966,9 +896,14 @@ $statusLabels = [
              HEADER
         ================================================== -->
 
-        <div class="technician-header">
+        <div class="technician-header garage-page-header">
 
             <div>
+
+                <!-- PAGE ICON: decorative icon for this page -->
+                <span class="garage-heading-icon" aria-hidden="true">
+                    <i class="fas fa-user-gear"></i>
+                </span>
 
                 <h1>
                     การจัดการช่าง
@@ -981,17 +916,7 @@ $statusLabels = [
             </div>
 
 
-            <button
-                type="button"
-                class="btn-primary"
-                onclick="openAddModal()"
-            >
 
-                <span class="plus">+</span>
-
-                เพิ่มช่าง
-
-            </button>
 
         </div>
 
@@ -1325,7 +1250,7 @@ $statusLabels = [
                 </h3>
 
                 <p>
-                    กดปุ่ม "เพิ่มช่าง" เพื่อเพิ่มช่างเข้าสู่ระบบ
+                    สร้างบัญชีและกำหนดบทบาทเป็นช่างในหน้าการจัดการผู้ใช้งาน
                 </p>
 
             </div>
@@ -1337,230 +1262,6 @@ $statusLabels = [
 
 </main>
 
-
-<!-- =====================================================
-     ADD TECHNICIAN MODAL
-===================================================== -->
-
-<div
-    id="addModal"
-    class="modal-overlay"
-    onclick="closeModalOutside(event, 'addModal')" >
-
-    <div class="technician-modal">
-
-        <div class="modal-header">
-
-            <div>
-
-                <h2>
-                    เพิ่มช่างใหม่
-                </h2>
-
-                <p>
-                    กรอกข้อมูลสำหรับสร้างบัญชีช่าง
-                </p>
-
-            </div>
-
-
-            <button
-                type="button"
-                class="modal-close"
-                onclick="closeModal('addModal')"
-            >
-                ×
-            </button>
-
-        </div>
-
-
-        <form
-            method="POST"
-            id="addTechnicianForm"
-        >
-
-            <input
-                type="hidden"
-                name="action"
-                value="add"
-            >
-
-            <!-- USER -->
-
-            <div class="form-group">
-
-                <label>
-                    เลือกผู้ใช้งาน
-                    <span>*</span>
-                </label>
-
-                <select
-                    name="user_id"
-                    id="addUserSelect"
-                    required
-                >
-
-                    <option value="">
-                        + เลือกผู้ใช้งาน
-                    </option>
-
-                    <?php foreach ($availableUsers as $user): ?>
-
-                        <option
-                            value="<?= (int)$user["user_id"] ?>"
-                        >
-                            <?= htmlspecialchars(
-                                $user["username"]
-                            ) ?>
-                        </option>
-
-                    <?php endforeach; ?>
-
-                </select>
-
-                <small class="form-help">
-                    เลือกบัญชีผู้ใช้งานที่ต้องการกำหนดให้เป็นช่าง
-                </small>
-
-            </div>
-
-            <!-- NAME -->
-
-            <div class="form-group">
-
-                <label>
-                    ชื่อ - นามสกุล
-                    <span>*</span>
-                </label>
-
-                <input
-                    type="text"
-                    name="full_name"
-                    placeholder="เช่น สมชาย ใจดี"
-                    required
-                >
-
-            </div>
-
-
-            <!-- PHONE -->
-
-            <div class="form-group">
-
-                <label>
-                    เบอร์โทรศัพท์
-                </label>
-
-                <input
-                    type="text"
-                    name="phone"
-                    placeholder="เช่น 0812345678"
-                >
-
-            </div>
-
-
-            <!-- SKILLS -->
-
-            <div class="form-group">
-
-                <label>
-                    ความสามารถและความถนัด
-                </label>
-
-
-                <select
-                    id="addSkillSelect"
-                    class="skill-select"
-                    onchange="addSkill('add')"
-                >
-
-                    <option value="">
-                        + เลือกความสามารถ
-                    </option>
-
-                    <?php foreach ($skillsList as $skill): ?>
-
-                        <option
-                            value="<?= $skill["skill_id"] ?>"
-                        >
-                            <?= htmlspecialchars(
-                                $skill["skill_name"]
-                            ) ?>
-                        </option>
-
-                    <?php endforeach; ?>
-
-                </select>
-
-
-                <div
-                    id="addSkillList"
-                    class="selected-skills"
-                ></div>
-
-            </div>
-
-
-            <!-- STATUS -->
-
-            <div class="form-group">
-
-                <label>
-                    สถานะการรับงาน
-                </label>
-
-
-                <select
-                    name="status"
-                    required
-                >
-
-                    <option value="available">
-                        พร้อมรับงาน
-                    </option>
-
-                    <option value="busy">
-                        ไม่ว่าง
-                    </option>
-
-                    <option value="inactive">
-                        พักงาน
-                    </option>
-
-                </select>
-
-            </div>
-
-
-            <!-- ACTION -->
-
-            <div class="modal-actions">
-
-                <button
-                    type="button"
-                    class="btn-cancel"
-                    onclick="closeModal('addModal')"
-                >
-                    ยกเลิก
-                </button>
-
-
-                <button
-                    type="submit"
-                    class="btn-submit"
-                >
-                    เพิ่มช่าง
-                </button>
-
-            </div>
-
-        </form>
-
-    </div>
-
-</div>
 
 
 <!-- =====================================================
@@ -1798,12 +1499,12 @@ $statusLabels = [
 
 
         <h2>
-            ลบข้อมูลช่าง
+            ลบช่างและบัญชีผู้ใช้
         </h2>
 
 
         <p>
-            คุณต้องการลบข้อมูลช่าง
+            คุณต้องการลบข้อมูลช่างและบัญชีผู้ใช้ของ
         </p>
 
 
@@ -1882,8 +1583,6 @@ const skillData = <?= json_encode(
 |--------------------------------------------------------------------------
 */
 
-let addSelectedSkills = [];
-
 let editSelectedSkills = [];
 
 
@@ -1892,21 +1591,6 @@ let editSelectedSkills = [];
 | Modal
 |--------------------------------------------------------------------------
 */
-
-function openAddModal()
-{
-    addSelectedSkills = [];
-
-    renderSkills(
-        "add"
-    );
-
-    document.getElementById("addTechnicianForm").reset();
-
-    document.getElementById("addModal")
-        .classList.add("show");
-}
-
 
 function openEditModal(data)
 {
@@ -1974,9 +1658,7 @@ function closeModalOutside(event, id)
 function addSkill(type)
 {
     const select = document.getElementById(
-        type === "add"
-            ? "addSkillSelect"
-            : "editSkillSelect"
+        "editSkillSelect"
     );
 
     const skillId = select.value;
@@ -1997,9 +1679,7 @@ function addSkill(type)
 
 
     let selectedSkills =
-        type === "add"
-            ? addSelectedSkills
-            : editSelectedSkills;
+        editSelectedSkills;
 
 
     const alreadyExists = selectedSkills.some(
@@ -2031,27 +1711,9 @@ function addSkill(type)
 
 function removeSkill(type, skillId)
 {
-    if (type === "add") {
-
-        addSelectedSkills =
-            addSelectedSkills.filter(
-                item =>
-                    String(item.skill_id) !== String(skillId)
-            );
-
-    } else {
-
-        editSelectedSkills =
-            editSelectedSkills.filter(
-                item =>
-                    String(item.skill_id) !== String(skillId)
-            );
-    }
-
-
+    editSelectedSkills = editSelectedSkills.filter(item => String(item.skill_id) !== String(skillId));
     renderSkills(type);
 }
-
 
 /*
 |--------------------------------------------------------------------------
@@ -2062,16 +1724,12 @@ function removeSkill(type, skillId)
 function renderSkills(type)
 {
     const container = document.getElementById(
-        type === "add"
-            ? "addSkillList"
-            : "editSkillList"
+        "editSkillList"
     );
 
 
     const selectedSkills =
-        type === "add"
-            ? addSelectedSkills
-            : editSelectedSkills;
+        editSelectedSkills;
 
 
     container.innerHTML = "";
@@ -2190,6 +1848,9 @@ document.addEventListener(
 
 </script>
 
+
+<!-- LOGOUT MODAL: shared confirmation for admin and user pages -->
+<?php require_once __DIR__ . "/../../includes/logout_modal.php"; ?>
 
 </body>
 </html>

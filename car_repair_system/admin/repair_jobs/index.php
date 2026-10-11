@@ -1,7 +1,15 @@
 <?php
-
+/*
+ * ภาพรวมการทำงานกับข้อมูลของไฟล์นี้
+ * รายการใบงานเชื่อมลูกค้า รถ และช่าง แล้วค่อยต่อเงื่อนไขคำค้นกับสถานะที่เลือก
+ * WHERE 1=1 เป็นเงื่อนไขจริงเสมอ เอาไว้ต่อ AND ง่าย ๆ ไม่ได้กรองรายการด้วยตัวมันเอง
+ * รายชื่อนัดสำหรับเปิดใบงานเลือก scheduled และต้องยังไม่มีใบงานอ้างถึงนัดนั้น
+ * การสร้าง/ตรวจรับ/ส่งกลับ/แก้ใบงานทำผ่าน includes/repair_workflow.php ซึ่งตรวจสถานะซ้ำฝั่งเซิร์ฟเวอร์
+ * มีทั้งทาง PDO กับ MySQLi ทำหน้าที่เดียวกัน ปกติ config/database.php ของระบบนี้สร้าง PDO
+ */
 require_once "../../includes/admin_auth.php";
 require_once "../../config/database.php";
+require_once "../../includes/repair_workflow.php";
 
 /*
 |--------------------------------------------------------------------------
@@ -35,730 +43,41 @@ function h($value)
 | STATUS
 |--------------------------------------------------------------------------
 */
-
 $statusLabels = [
-    'waiting'      => 'รอดำเนินการ',
-    'assigned'     => 'ได้รับมอบหมาย',
-    'in_progress'  => 'กำลังดำเนินการ',
-    'completed'    => 'เสร็จสิ้น',
-    'invoiced'     => 'ออกใบแจ้งหนี้แล้ว'
+    'waiting' => 'รอเริ่มงาน',
+    'in_progress' => 'กำลังซ่อม',
+    'awaiting_review' => 'รอตรวจรับงาน',
+    'completed' => 'เสร็จสิ้น',
+    'waiting_payment' => 'รอชำระเงิน',
+    'paid' => 'ชำระเงินแล้ว',
+    'closed' => 'ปิดงาน',
+    'cancelled' => 'ยกเลิก'
 ];
-
-
 /*
 |--------------------------------------------------------------------------
 | CREATE REPAIR JOB
 |--------------------------------------------------------------------------
 */
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'create') {
-
-    $customerId = (int)($_POST['customer_id'] ?? 0);
-    $vehicleId  = (int)($_POST['vehicle_id'] ?? 0);
-    $mechanicId = !empty($_POST['mechanic_id'])
-        ? (int)$_POST['mechanic_id']
-        : null;
-
-    $serviceDate = $_POST['service_date'] ?? date('Y-m-d');
-
-    $dueDate = !empty($_POST['due_date'])
-        ? $_POST['due_date']
-        : null;
-
-    $mileage = (int)($_POST['mileage'] ?? 0);
-
-    $initialSymptom = trim($_POST['initial_symptom'] ?? '');
-    $customerRequest = trim($_POST['customer_request'] ?? '');
-
-    if (!$customerId || !$vehicleId || !$serviceDate) {
-        $_SESSION['repair_job_error'] = 'กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน';
-        header("Location: index.php");
-        exit;
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | STATUS
-    |--------------------------------------------------------------------------
-    */
-
-    $status = $mechanicId ? 'assigned' : 'waiting';
-
-    /*
-    |--------------------------------------------------------------------------
-    | INSERT
-    |--------------------------------------------------------------------------
-    */
-
-    $sql = "
-        INSERT INTO repair_jobs
-        (
-            repair_order_code,
-            customer_id,
-            vehicle_id,
-            mechanic_id,
-            assigned_at,
-            due_date,
-            service_date,
-            mileage,
-            initial_symptom,
-            customer_request,
-            status
-        )
-        VALUES
-        (
-            '',
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?,
-            ?
-        )
-    ";
-
-    if ($db instanceof PDO) {
-
-        $stmt = $db->prepare($sql);
-
-$assignedAt = $mechanicId ? date('Y-m-d H:i:s') : null;
-
-        $stmt->execute([
-            $customerId,
-            $vehicleId,
-            $mechanicId,
-            $assignedAt,
-            $dueDate,
-            $serviceDate,
-            $mileage,
-            $initialSymptom,
-            $customerRequest,
-            $status
-        ]);
-        $repairId = $db->lastInsertId();
-
-        $code = 'RJ-' . str_pad($repairId, 6, '0', STR_PAD_LEFT);
-
-        $stmt = $db->prepare("
-            UPDATE repair_jobs
-            SET repair_order_code = ?
-            WHERE repair_order_id = ?
-        ");
-
-        $stmt->execute([$code, $repairId]);
-
-    } else {
-
-        $stmt = $db->prepare($sql);
-
-$assignedAt = $mechanicId ? date('Y-m-d H:i:s') : null;
-
-        $stmt->bind_param(
-            "iiisssisss",
-            $customerId,
-            $vehicleId,
-            $mechanicId,
-            $assignedAt,
-            $dueDate,
-            $serviceDate,
-            $mileage,
-            $initialSymptom,
-            $customerRequest,
-            $status
-        );
-
-        $stmt->execute();
-
-        $repairId = $db->insert_id;
-
-        $code = 'RJ-' . str_pad($repairId, 6, '0', STR_PAD_LEFT);
-
-        $stmt = $db->prepare("
-            UPDATE repair_jobs
-            SET repair_order_code = ?
-            WHERE repair_order_id = ?
-        ");
-
-        $stmt->bind_param("si", $code, $repairId);
-        $stmt->execute();
-    }
-
-    /*
-|--------------------------------------------------------------------------
-| SET MECHANIC BUSY
-|--------------------------------------------------------------------------
-*/
-
-if ($mechanicId) {
-
-    if ($db instanceof PDO) {
-
-        $stmt = $db->prepare("
-            UPDATE mechanics
-            SET
-                status = 'busy',
-                updated_at = NOW()
-            WHERE
-                mechanic_id = ?
-        ");
-
-        $stmt->execute([
-            $mechanicId
-        ]);
-
-    } else {
-
-        $stmt = $db->prepare("
-            UPDATE mechanics
-            SET
-                status = 'busy',
-                updated_at = NOW()
-            WHERE
-                mechanic_id = ?
-        ");
-
-        $stmt->bind_param(
-            "i",
-            $mechanicId
-        );
-
-        $stmt->execute();
-    }
-}
-
-    $_SESSION['repair_job_success'] = "สร้างใบงาน {$code} สำเร็จ";
-
-    header("Location: index.php");
-    exit;
-}
-
-/*
-|--------------------------------------------------------------------------
-| UPDATE REPAIR JOB
-|--------------------------------------------------------------------------
-*/
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update') {
-
-    $repairId = (int)($_POST['repair_order_id'] ?? 0);
-
-    $mechanicId = !empty($_POST['mechanic_id'])
-        ? (int)$_POST['mechanic_id']
-        : null;
-
-    $status = $_POST['status'] ?? 'waiting';
-
-    $dueDate = !empty($_POST['due_date'])
-        ? $_POST['due_date']
-        : null;
-
-    $initialSymptom = trim($_POST['initial_symptom'] ?? '');
-    $customerRequest = trim($_POST['customer_request'] ?? '');
-    $inspectionResult = trim($_POST['inspection_result'] ?? '');
-    $repairDetail = trim($_POST['repair_detail'] ?? '');
-    $additionalProblem = trim($_POST['additional_problem'] ?? '');
-    $mechanicNote = trim($_POST['mechanic_note'] ?? '');
-
-    if (!$repairId) {
-
-        $_SESSION['repair_job_error'] = 'ไม่พบใบงานซ่อม';
-
-        header("Location: index.php");
-        exit;
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | GET OLD MECHANIC
-    |--------------------------------------------------------------------------
-    */
-
-    $oldMechanicId = null;
-    $oldAssignedAt = null;
-
-    if ($db instanceof PDO) {
-
-        $stmt = $db->prepare("
-            SELECT mechanic_id, assigned_at
-            FROM repair_jobs
-            WHERE repair_order_id = ?
-        ");
-
-        $stmt->execute([$repairId]);
-
-        $oldJob = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    } else {
-
-        $stmt = $db->prepare("
-            SELECT mechanic_id, assigned_at
-            FROM repair_jobs
-            WHERE repair_order_id = ?
-        ");
-
-        $stmt->bind_param("i", $repairId);
-        $stmt->execute();
-
-        $result = $stmt->get_result();
-
-        $oldJob = $result->fetch_assoc();
-    }
-
-
-    if ($oldJob) {
-
-        $oldMechanicId = !empty($oldJob['mechanic_id'])
-            ? (int)$oldJob['mechanic_id']
-            : null;
-
-        $oldAssignedAt = $oldJob['assigned_at'] ?? null;
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | ASSIGNMENT TIME
-    |--------------------------------------------------------------------------
-    |
-    | บันทึกเวลาเมื่อ:
-    | 1. มีการมอบหมายช่างครั้งแรก
-    | 2. เปลี่ยนช่างจากคนหนึ่งเป็นอีกคน
-    |
-    */
-
-    $assignedAt = $oldAssignedAt;
-
-    if ($mechanicId && $mechanicId !== $oldMechanicId) {
-
-        $assignedAt = date('Y-m-d H:i:s');
-
-        if ($status === 'waiting') {
-            $status = 'assigned';
-        }
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | REMOVE MECHANIC
-    |--------------------------------------------------------------------------
-    */
-
-    if (!$mechanicId) {
-
-        $assignedAt = null;
-
-        if ($status === 'assigned') {
-            $status = 'waiting';
-        }
-    }
-
-/*
-|--------------------------------------------------------------------------
-| UPDATE MECHANIC AVAILABILITY
-|--------------------------------------------------------------------------
-*/
-
-/*
-| ถอดช่างเก่าออก
-*/
-
-if (
-    $oldMechanicId &&
-    $oldMechanicId !== $mechanicId
-) {
-
-    if ($db instanceof PDO) {
-
-        $stmt = $db->prepare("
-            UPDATE mechanics
-            SET
-                status = 'available',
-                updated_at = NOW()
-            WHERE
-                mechanic_id = ?
-        ");
-
-        $stmt->execute([
-            $oldMechanicId
-        ]);
-
-    } else {
-
-        $stmt = $db->prepare("
-            UPDATE mechanics
-            SET
-                status = 'available',
-                updated_at = NOW()
-            WHERE
-                mechanic_id = ?
-        ");
-
-        $stmt->bind_param(
-            "i",
-            $oldMechanicId
-        );
-
-        $stmt->execute();
-    }
-}
-
-
-/*
-| มอบหมายช่างใหม่
-*/
-
-if (
-    $mechanicId &&
-    $mechanicId !== $oldMechanicId &&
-    $status !== 'completed'
-) {
-
-    if ($db instanceof PDO) {
-
-        $stmt = $db->prepare("
-            UPDATE mechanics
-            SET
-                status = 'busy',
-                updated_at = NOW()
-            WHERE
-                mechanic_id = ?
-        ");
-
-        $stmt->execute([
-            $mechanicId
-        ]);
-
-    } else {
-
-        $stmt = $db->prepare("
-            UPDATE mechanics
-            SET
-                status = 'busy',
-                updated_at = NOW()
-            WHERE
-                mechanic_id = ?
-        ");
-
-        $stmt->bind_param(
-            "i",
-            $mechanicId
-        );
-
-        $stmt->execute();
-    }
-}
-
-if ($status === 'completed' && $mechanicId) {
-
-    if ($db instanceof PDO) {
-
-        $stmt = $db->prepare("
-            UPDATE mechanics
-            SET
-                status = 'available',
-                updated_at = NOW()
-            WHERE mechanic_id = ?
-        ");
-
-        $stmt->execute([
-            $mechanicId
-        ]);
-
-    } else {
-
-        $stmt = $db->prepare("
-            UPDATE mechanics
-            SET
-                status = 'available',
-                updated_at = NOW()
-            WHERE mechanic_id = ?
-        ");
-
-        $stmt->bind_param(
-            "i",
-            $mechanicId
-        );
-
-        $stmt->execute();
-    }
-}
-
-/*
-|--------------------------------------------------------------------------
-| START / END TIME
-|--------------------------------------------------------------------------
-*/
-
-$startTimeSql = "";
-$endTimeSql = "";
-
-if ($status === 'in_progress') {
-    $startTimeSql = ", start_time = COALESCE(start_time, NOW())";
-}
-
-if ($status === 'completed') {
-    $endTimeSql = ", end_time = COALESCE(end_time, NOW())";
-}
-    /*
-    |--------------------------------------------------------------------------
-    | UPDATE
-    |--------------------------------------------------------------------------
-    */
-
-    if ($db instanceof PDO) {
-
-        $sql = "
-            UPDATE repair_jobs
-            SET
-                mechanic_id = ?,
-                assigned_at = ?,
-                due_date = ?,
-                status = ?,
-                initial_symptom = ?,
-                customer_request = ?,
-                inspection_result = ?,
-                repair_detail = ?,
-                additional_problem = ?,
-                mechanic_note = ?,
-                updated_at = NOW()
-                $startTimeSql
-                $endTimeSql
-            WHERE repair_order_id = ?
-        ";
-
-        $stmt = $db->prepare($sql);
-
-        $stmt->execute([
-            $mechanicId,
-            $assignedAt,
-            $dueDate,
-            $status,
-            $initialSymptom,
-            $customerRequest,
-            $inspectionResult,
-            $repairDetail,
-            $additionalProblem,
-            $mechanicNote,
-            $repairId
-        ]);
-
-    } else {
-
-        $sql = "
-            UPDATE repair_jobs
-            SET
-                mechanic_id = ?,
-                assigned_at = ?,
-                due_date = ?,
-                status = ?,
-                initial_symptom = ?,
-                customer_request = ?,
-                inspection_result = ?,
-                repair_detail = ?,
-                additional_problem = ?,
-                mechanic_note = ?,
-                updated_at = NOW()
-                $startTimeSql
-                $endTimeSql
-                WHERE repair_order_id = ?
-        ";
-
-        $stmt = $db->prepare($sql);
-
-        $stmt->bind_param(
-            "isssssssssi",
-            $mechanicId,
-            $assignedAt,
-            $dueDate,
-            $status,
-            $initialSymptom,
-            $customerRequest,
-            $inspectionResult,
-            $repairDetail,
-            $additionalProblem,
-            $mechanicNote,
-            $repairId
-        );
-
-        $stmt->execute();
-    }
-
-
-    $_SESSION['repair_job_success'] =
-        'อัปเดตใบงานซ่อมเรียบร้อยแล้ว';
-
-    header("Location: index.php");
-    exit;
-}
-/*
-|--------------------------------------------------------------------------
-| MARK COMPLETE
-|--------------------------------------------------------------------------
-*/
-if (
-    $_SERVER['REQUEST_METHOD'] === 'POST'
-    && ($_POST['action'] ?? '') === 'complete'
-) {
-
-    $repairId = (int)($_POST['repair_order_id'] ?? 0);
-
-    if (!$repairId) {
-
-        $_SESSION['repair_job_error'] =
-            'ไม่พบใบงานซ่อม';
-
-        header("Location: index.php");
-        exit;
-    }
-    /*
-    |--------------------------------------------------------------------------
-    | GET MECHANIC
-    |--------------------------------------------------------------------------
-    */
-    $mechanicId = null;
-
-    if ($db instanceof PDO) {
-
-        $stmt = $db->prepare("
-            SELECT mechanic_id
-            FROM repair_jobs
-            WHERE repair_order_id = ?
-        ");
-
-        $stmt->execute([
-            $repairId
-        ]);
-
-        $job = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($job) {
-            $mechanicId = !empty($job['mechanic_id'])
-                ? (int)$job['mechanic_id']
-                : null;
-        }
-
-    } else {
-
-        $stmt = $db->prepare("
-            SELECT mechanic_id
-            FROM repair_jobs
-            WHERE repair_order_id = ?
-        ");
-
-        $stmt->bind_param(
-            "i",
-            $repairId
-        );
-
-        $stmt->execute();
-
-        $result = $stmt->get_result();
-
-        $job = $result->fetch_assoc();
-
-        if ($job) {
-            $mechanicId = !empty($job['mechanic_id'])
-                ? (int)$job['mechanic_id']
-                : null;
-        }
-    }
-    /*
-    |--------------------------------------------------------------------------
-    | COMPLETE JOB
-    |--------------------------------------------------------------------------
-    */
-    if ($db instanceof PDO) {
-
-        $stmt = $db->prepare("
-            UPDATE repair_jobs
-            SET
-                status = 'completed',
-                end_time = NOW(),
-                updated_at = NOW()
-            WHERE repair_order_id = ?
-        ");
-
-        $stmt->execute([
-            $repairId
-        ]);
-
-    } else {
-
-        $stmt = $db->prepare("
-            UPDATE repair_jobs
-            SET
-                status = 'completed',
-                end_time = NOW(),
-                updated_at = NOW()
-            WHERE repair_order_id = ?
-        ");
-
-        $stmt->bind_param(
-            "i",
-            $repairId
-        );
-
-        $stmt->execute();
-    }
-    /*
-    |--------------------------------------------------------------------------
-    | RELEASE MECHANIC
-    |--------------------------------------------------------------------------
-    */
-    if ($mechanicId) {
-
-        if ($db instanceof PDO) {
-
-            $stmt = $db->prepare("
-                UPDATE mechanics
-                SET
-                    status = 'available',
-                    updated_at = NOW()
-                WHERE mechanic_id = ?
-            ");
-
-            $stmt->execute([
-                $mechanicId
-            ]);
-
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    try {
+        $action = $_POST['action'] ?? '';
+        if ($action === 'create') {
+            $code = workflowCreateJob($pdo, $_POST, (int)$_SESSION['user_id']);
+            $_SESSION['repair_job_success'] = "สร้างใบงาน $code และอัปเดตนัดเป็นเข้ารับบริการแล้ว";
         } else {
-
-            $stmt = $db->prepare("
-                UPDATE mechanics
-                SET
-                    status = 'available',
-                    updated_at = NOW()
-                WHERE mechanic_id = ?
-            ");
-
-            $stmt->bind_param(
-                "i",
-                $mechanicId
-            );
-
-            $stmt->execute();
+            workflowJobAction($pdo, (int)($_POST['repair_order_id'] ?? 0), $action, $_POST, (int)$_SESSION['user_id']);
+            $_SESSION['repair_job_success'] = 'บันทึกการดำเนินการเรียบร้อยแล้ว';
         }
+    } catch (InvalidArgumentException $e) {
+        $_SESSION['repair_job_error'] = $e->getMessage();
+    } catch (Throwable $e) {
+        error_log($e->getMessage());
+        $_SESSION['repair_job_error'] = 'ไม่สามารถบันทึกได้ กรุณารีเฟรชแล้วลองใหม่';
     }
-
-
-    $_SESSION['repair_job_success'] =
-        'ปิดใบงานซ่อมเรียบร้อยแล้ว';
-
-    header("Location: index.php");
+    header('Location: index.php');
     exit;
 }
-/*
-|--------------------------------------------------------------------------
-| SEARCH / FILTER
-|--------------------------------------------------------------------------
-*/
-
 $search = trim($_GET['search'] ?? '');
 $filterStatus = $_GET['status'] ?? '';
 
@@ -769,6 +88,12 @@ $filterStatus = $_GET['status'] ?? '';
 |--------------------------------------------------------------------------
 */
 
+/*
+ * ตรงนี้อ่านข้อมูลจาก repair_jobs (ใบงานซ่อม), customers (ลูกค้า), vehicles (รถยนต์), mechanics (ช่าง)
+ * JOIN / INNER JOIN เอาเฉพาะแถวที่จับคู่ได้ตาม ON เช่น รหัสลูกค้าหรือรหัสรถตรงกัน
+ * LEFT JOIN ยังเก็บแถวฝั่งซ้ายไว้แม้ฝั่งขวาไม่มีคู่ คอลัมน์ของฝั่งขวาจะเป็น NULL
+ * เงื่อนไข WHERE ที่ใช้จริง: 1=1
+ */
 $sql = "
     SELECT
         r.*,
@@ -809,6 +134,13 @@ $types = "";
 
 if ($search !== '') {
 
+    /*
+     * ต่อเงื่อนไขกรองเพิ่มให้ SQL เดิม เฉพาะเมื่อ PHP เข้ามาทำงานในบล็อกนี้
+     * ต้องผ่านเงื่อนไขเดิมด้วย และเพิ่มเงื่อนไข: ( r.repair_order_code LIKE ? OR c.full_name LIKE ? OR
+     * v.license_plate LIKE ? )
+     * LIKE ใช้ค้นหาข้อความ ส่วน % ที่ PHP เติมหน้าหลังหมายถึงมีคำนี้อยู่ตรงไหนก็เจอ
+     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+     */
     $sql .= "
         AND (
             r.repair_order_code LIKE ?
@@ -835,6 +167,11 @@ if ($search !== '') {
 
 if ($filterStatus !== '' && isset($statusLabels[$filterStatus])) {
 
+    /*
+     * ต่อเงื่อนไขกรองเพิ่มให้ SQL เดิม เฉพาะเมื่อ PHP เข้ามาทำงานในบล็อกนี้
+     * ต้องผ่านเงื่อนไขเดิมด้วย และเพิ่มเงื่อนไข: r.status = ?
+     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+     */
     $sql .= " AND r.status = ? ";
 
     $params[] = $filterStatus;
@@ -842,6 +179,11 @@ if ($filterStatus !== '' && isset($statusLabels[$filterStatus])) {
 }
 
 
+/*
+ * ต่อส่วนเรียงลำดับให้ SQL ที่ประกอบไว้ด้านบน
+ * เรียงตาม: r.created_at DESC
+ * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+ */
 $sql .= "
     ORDER BY
         r.created_at DESC
@@ -858,23 +200,44 @@ $jobs = [];
 
 if ($db instanceof PDO) {
 
+    /*
+     * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+     */
     $stmt = $db->prepare($sql);
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
     $stmt->execute($params);
 
+    /*
+     * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+     */
     $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } else {
 
+    /*
+     * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+     */
     $stmt = $db->prepare($sql);
 
     if (!empty($params)) {
+        /*
+         * MySQLi ผูกค่าตามลำดับ ? โดย i = จำนวนเต็ม, s = ข้อความ, d = ทศนิยม
+         */
         $stmt->bind_param($types, ...$params);
     }
 
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
     $stmt->execute();
 
     $result = $stmt->get_result();
 
+    /*
+     * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+     */
     while ($row = $result->fetch_assoc()) {
         $jobs[] = $row;
     }
@@ -891,22 +254,38 @@ $customers = [];
 
 if ($db instanceof PDO) {
 
+    /*
+     * ตรงนี้อ่านข้อมูลจาก customers (ลูกค้า)
+     * เรียงตาม: full_name ASC
+     * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+     */
     $stmt = $db->query("
         SELECT customer_id, full_name, phone
         FROM customers
         ORDER BY full_name ASC
     ");
 
+    /*
+     * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+     */
     $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } else {
 
+    /*
+     * ตรงนี้อ่านข้อมูลจาก customers (ลูกค้า)
+     * เรียงตาม: full_name ASC
+     * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+     */
     $result = $db->query("
         SELECT customer_id, full_name, phone
         FROM customers
         ORDER BY full_name ASC
     ");
 
+    /*
+     * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+     */
     while ($row = $result->fetch_assoc()) {
         $customers[] = $row;
     }
@@ -923,6 +302,11 @@ $vehicles = [];
 
 if ($db instanceof PDO) {
 
+    /*
+     * ตรงนี้อ่านข้อมูลจาก vehicles (รถยนต์)
+     * เรียงตาม: license_plate ASC
+     * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+     */
     $stmt = $db->query("
         SELECT
             vehicle_id,
@@ -936,10 +320,18 @@ if ($db instanceof PDO) {
         ORDER BY license_plate ASC
     ");
 
+    /*
+     * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+     */
     $vehicles = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } else {
 
+    /*
+     * ตรงนี้อ่านข้อมูลจาก vehicles (รถยนต์)
+     * เรียงตาม: license_plate ASC
+     * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+     */
     $result = $db->query("
         SELECT
             vehicle_id,
@@ -953,6 +345,9 @@ if ($db instanceof PDO) {
         ORDER BY license_plate ASC
     ");
 
+    /*
+     * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+     */
     while ($row = $result->fetch_assoc()) {
         $vehicles[] = $row;
     }
@@ -967,6 +362,17 @@ if ($db instanceof PDO) {
 
 $mechanics = [];
 
+/*
+ * ตรงนี้อ่านข้อมูลจาก mechanics (ช่าง), mechanic_skills (ตารางเชื่อมช่างกับทักษะ), skills (ทักษะช่าง)
+ * LEFT JOIN ยังเก็บแถวฝั่งซ้ายไว้แม้ฝั่งขวาไม่มีคู่ คอลัมน์ของฝั่งขวาจะเป็น NULL
+ * เงื่อนไข WHERE ที่ใช้จริง: m.status != 'inactive' 
+ * GROUP_CONCAT รวมหลายชื่อเป็นข้อความเดียวต่อกลุ่ม DISTINCT ตัดชื่อซ้ำ เช่น ทักษะของช่าง
+ * จัดกลุ่มก่อนคำนวณยอด/จำนวนด้วย GROUP BY: m.mechanic_id, m.full_name, m.status 
+ * เรียงตาม: s.skill_name SEPARATOR ', ' ) AS skills FROM mechanics m LEFT JOIN mechanic_skills ms ON
+ * m.mechanic_id = ms.mechanic_id LEFT JOIN skills s ON ms.skill_id = s.skill_id WHERE m.status != 'inactive'
+ * GROUP BY m.mechanic_id, m.full_name, m.status ORDER BY m.full_name ASC
+ * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+ */
 $sqlMechanics = "
     SELECT
         m.mechanic_id,
@@ -1002,24 +408,42 @@ if ($db instanceof PDO) {
 
     $stmt = $db->query($sqlMechanics);
 
+    /*
+     * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+     */
     $mechanics = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } else {
 
     $result = $db->query($sqlMechanics);
 
+    /*
+     * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+     */
     while ($row = $result->fetch_assoc()) {
         $mechanics[] = $row;
     }
 }
-
-
 /*
 |--------------------------------------------------------------------------
 | FLASH MESSAGE
 |--------------------------------------------------------------------------
 */
 
+/*
+ * ตรงนี้อ่านข้อมูลจาก appointments (นัดหมาย), customers (ลูกค้า), vehicles (รถยนต์), repair_jobs (ใบงานซ่อม)
+ * JOIN / INNER JOIN เอาเฉพาะแถวที่จับคู่ได้ตาม ON เช่น รหัสลูกค้าหรือรหัสรถตรงกัน
+ * LEFT JOIN ยังเก็บแถวฝั่งซ้ายไว้แม้ฝั่งขวาไม่มีคู่ คอลัมน์ของฝั่งขวาจะเป็น NULL
+ * เงื่อนไข WHERE ที่ใช้จริง: a.status='scheduled' AND r.repair_order_id IS NULL 
+ * เรียงตาม: a.appointment_date,a.appointment_time
+ * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+ * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+ */
+$availableAppointments = $pdo->query("SELECT a.*,c.full_name AS customer_name,v.license_plate,v.brand,v.model
+    FROM appointments a JOIN customers c ON c.customer_id=a.customer_id JOIN vehicles v ON v.vehicle_id=a.vehicle_id
+    LEFT JOIN repair_jobs r ON r.appointment_id=a.appointment_id
+    WHERE a.status='scheduled' AND r.repair_order_id IS NULL ORDER BY a.appointment_date,a.appointment_time")->fetchAll(PDO::FETCH_ASSOC);
+$jobHistory = workflowHistory($pdo,array_column($jobs,'repair_order_id'),'repair_order_id');
 $successMessage = $_SESSION['repair_job_success'] ?? '';
 $errorMessage = $_SESSION['repair_job_error'] ?? '';
 
@@ -1041,7 +465,7 @@ unset($_SESSION['repair_job_error']);
         content="width=device-width, initial-scale=1.0"
     >
 
-    <title>การจัดการใบงานซ่อม | P.Chalermchai Car Service</title>
+    <title>การจัดการใบงานซ่อม | ป.เฉลิมชัย คาร์แคร์ เซอร์วิส</title>
 
 
     <!-- Global -->
@@ -1067,11 +491,15 @@ unset($_SESSION['repair_job_error']);
         href="../../assets/css/admin/repair_jobs.css"
     >
 
+<link rel="stylesheet" href="../../assets/css/workflow.css">
+    <link rel="stylesheet" href="../../assets/css/confirmation-modal.css">
+
+    <!-- GARAGE THEME: shared navy, gold and warm cream styles -->
+    <link rel="stylesheet" href="../../assets/css/garage-theme.css">
+
+
 </head>
-
-
 <body>
-
 
 <!-- =====================================================
      TOPBAR
@@ -1080,7 +508,9 @@ unset($_SESSION['repair_job_error']);
 <header class="topbar">
 
     <div class="brand">
-        P.Chalermchai Car Service
+            <!-- BRAND LOGO: original garage identity -->
+            <img class="brand-logo" src="../../assets/img/logo.jpg" alt="" width="48" height="48">
+        ป.เฉลิมชัย คาร์แคร์ เซอร์วิส
     </div>
 
 
@@ -1160,20 +590,20 @@ unset($_SESSION['repair_job_error']);
         </a>
 
 
-        <a href="../technician/index.php">
-
-            <span class="menu-icon">👨‍🔧</span>
-
-            <span>จัดการช่าง</span>
-
-        </a>
-
-
         <a href="../financial/index.php">
 
             <span class="menu-icon">💰</span>
 
             <span>การเงิน</span>
+
+        </a>
+
+
+        <a href="../technician/index.php">
+
+            <span class="menu-icon">👨‍🔧</span>
+
+            <span>จัดการช่าง</span>
 
         </a>
 
@@ -1204,9 +634,14 @@ unset($_SESSION['repair_job_error']);
 
         <!-- HEADER -->
 
-        <div class="repair-header">
+        <div class="repair-header garage-page-header">
 
             <div>
+
+                <!-- PAGE ICON: decorative icon for this page -->
+                <span class="garage-heading-icon" aria-hidden="true">
+                    <i class="fas fa-screwdriver-wrench"></i>
+                </span>
 
                 <h1>
                     การจัดการใบงานซ่อม
@@ -1232,8 +667,6 @@ unset($_SESSION['repair_job_error']);
             </button>
 
         </div>
-
-
 
         <!-- =================================================
              ALERT
@@ -1278,57 +711,47 @@ unset($_SESSION['repair_job_error']);
                     value="<?= h($search) ?>"
                     placeholder="ค้นหารหัสใบงาน ชื่อลูกค้า หรือทะเบียนรถ..."
                 >
-
             </div>
 
-
-            <select
-                name="status"
-                class="repair-status-filter"
-                onchange="this.form.submit()"
-            >
-
-                <option value="">
-                    ทุกสถานะ
-                </option>
-
-                <option
-                    value="waiting"
-                    <?= $filterStatus === 'waiting' ? 'selected' : '' ?>
+                <select
+                    name="status"
+                    class="repair-status-filter"
+                    onchange="this.form.submit()"
                 >
-                    รอดำเนินการ
-                </option>
 
-                <option
-                    value="assigned"
-                    <?= $filterStatus === 'assigned' ? 'selected' : '' ?>
-                >
-                    ได้รับมอบหมาย
-                </option>
+                    <option value="">
+                        ทุกสถานะ
+                    </option>
 
-                <option
-                    value="in_progress"
-                    <?= $filterStatus === 'in_progress' ? 'selected' : '' ?>
-                >
-                    กำลังดำเนินการ
-                </option>
+                    <option
+                        value="waiting"
+                        <?= $filterStatus === 'waiting' ? 'selected' : '' ?>
+                    >
+                        รอดำเนินการ
+                    </option>
 
-                <option
-                    value="completed"
-                    <?= $filterStatus === 'completed' ? 'selected' : '' ?>
-                >
-                    เสร็จสิ้น
-                </option>
+                    <option
+                        value="in_progress"
+                        <?= $filterStatus === 'in_progress' ? 'selected' : '' ?>
+                    >
+                        กำลังดำเนินการ
+                    </option>
 
-                <option
-                    value="invoiced"
-                    <?= $filterStatus === 'invoiced' ? 'selected' : '' ?>
-                >
-                    ออกใบแจ้งหนี้แล้ว
-                </option>
+                    <option value="awaiting_review" <?= $filterStatus === "awaiting_review" ? "selected" : "" ?>>รอตรวจรับงาน</option>
+<option
+                        value="completed"
+                        <?= $filterStatus === 'completed' ? 'selected' : '' ?>
+                    >
+                        เสร็จสิ้น
+                    </option>
 
-            </select>
-
+                    <option
+                        value="cancelled"
+                        <?= $filterStatus === 'cancelled' ? 'selected' : '' ?>
+                    >
+                        ยกเลิก
+                    </option>
+                </select>
 
             <?php if ($search !== '' || $filterStatus !== ''): ?>
 
@@ -1515,18 +938,12 @@ unset($_SESSION['repair_job_error']);
 
                     </div>
 
-
-
                     <!-- TECHNICIAN -->
-
                     <div class="repair-technician">
-
-
                         <span>
                             👨‍🔧
                             ช่าง:
                         </span>
-
 
                         <strong>
 
@@ -1536,14 +953,8 @@ unset($_SESSION['repair_job_error']);
                             ) ?>
 
                         </strong>
-
-
                     </div>
-
-
-
                     <!-- INSPECTION -->
-
                     <?php if (!empty($job['inspection_result'])): ?>
 
                         <div class="inspection-preview">
@@ -1555,17 +966,11 @@ unset($_SESSION['repair_job_error']);
                             <?= h($job['inspection_result']) ?>
 
                         </div>
-
                     <?php endif; ?>
-
-
-
                     <!-- ACTIONS -->
-
                     <div class="repair-actions">
-
-
-                        <button
+                        <?php if (in_array($job['status'], ['waiting','in_progress'], true)): ?>
+<button
                             type="button"
                             class="repair-action edit"
                             onclick='openEditModal(<?= json_encode(
@@ -1573,47 +978,35 @@ unset($_SESSION['repair_job_error']);
                                 JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP
                             ) ?>)'
                         >
-
                             ✏️ แก้ไข
-
                         </button>
+<?php endif; ?>
 
-
-
-                        <?php if ($job['status'] !== 'completed' && $job['status'] !== 'invoiced'): ?>
-
-                            <form
-                                method="POST"
-                                onsubmit="return confirm('ต้องการปิดใบงานนี้ใช่หรือไม่?')"
-                            >
-
-                                <input
-                                    type="hidden"
-                                    name="action"
-                                    value="complete"
-                                >
-
-                                <input
-                                    type="hidden"
-                                    name="repair_order_id"
-                                    value="<?= (int)$job['repair_order_id'] ?>"
-                                >
-
-                                <button
-                                    type="submit"
-                                    class="repair-action complete"
-                                >
-                                    ✓ Mark Complete
-                                </button>
-
-                            </form>
-
-                        <?php endif; ?>
-
-
+                        <?php workflowRenderHistory($jobHistory[$job['repair_order_id']] ?? []); ?>
+<?php if ($job['status'] === 'awaiting_review'): ?>
+<div class="workflow-review">
+    <strong>รอแอดมินตรวจรับงาน</strong><p><?= nl2br(h($job['repair_detail'])) ?></p>
+    <form
+        method="POST"
+        data-confirm-title="ยืนยันตรวจรับงาน"
+        data-confirm-button="ยืนยันตรวจรับ"
+        data-confirm-details="<?= h(json_encode([
+            'เลขใบงาน' => $job['repair_order_code'],
+            'ทะเบียนรถ' => $job['license_plate'],
+            'รายละเอียดการซ่อม' => $job['repair_detail']
+        ], JSON_UNESCAPED_UNICODE)) ?>"
+    >
+        <input type="hidden" name="action" value="approve"><input type="hidden" name="repair_order_id" value="<?= (int)$job['repair_order_id'] ?>">
+        <button type="submit" class="repair-action complete">✓ ยืนยันตรวจรับ</button>
+    </form>
+    <form method="POST">
+        <input type="hidden" name="action" value="return_work"><input type="hidden" name="repair_order_id" value="<?= (int)$job['repair_order_id'] ?>">
+        <label>เหตุผลที่ส่งกลับแก้ไข<textarea name="reason" rows="2" required placeholder="ระบุสิ่งที่ต้องให้ช่างแก้ไขเพิ่มเติม"></textarea></label>
+        <button type="submit" class="repair-action edit">ส่งกลับแก้ไข</button>
+    </form>
+</div>
+<?php endif; ?>
                     </div>
-
-
                 </article>
 
             <?php endforeach; ?>
@@ -1681,73 +1074,18 @@ unset($_SESSION['repair_job_error']);
             >
 
 
-            <!-- CUSTOMER -->
-
-            <div class="form-group">
-
-                <label>
-                    ลูกค้า <span>*</span>
-                </label>
-
-                <select
-                    name="customer_id"
-                    id="createCustomer"
-                    required
-                    onchange="loadVehicles('create')"
-                >
-
-                    <option value="">
-                        เลือกลูกค้า
-                    </option>
-
-
-                    <?php foreach ($customers as $customer): ?>
-
-                        <option
-                            value="<?= (int)$customer['customer_id'] ?>"
-                        >
-
-                            <?= h($customer['full_name']) ?>
-
-                            <?php if (!empty($customer['phone'])): ?>
-
-                                · <?= h($customer['phone']) ?>
-
-                            <?php endif; ?>
-
-                        </option>
-
-                    <?php endforeach; ?>
-
-                </select>
-
-            </div>
-
-
-
-            <!-- VEHICLE -->
-
-            <div class="form-group">
-
-                <label>
-                    รถยนต์ <span>*</span>
-                </label>
-
-                <select
-                    name="vehicle_id"
-                    id="createVehicle"
-                    required
-                    disabled
-                >
-
-                    <option value="">
-                        เลือกลูกค้าก่อน
-                    </option>
-
-                </select>
-
-            </div>
-
+<div class="form-group">
+    <label for="createAppointment">นัดหมายที่เข้ารับบริการ *</label>
+    <select name="appointment_id" id="createAppointment" required onchange="selectAppointment()">
+        <option value="">เลือกนัดหมาย</option>
+        <?php foreach ($availableAppointments as $appointment): ?>
+        <option value="<?= (int)$appointment['appointment_id'] ?>"><?= h($appointment['appointment_date'].' '.substr($appointment['appointment_time'],0,5).' · '.$appointment['customer_name'].' · '.$appointment['license_plate']) ?></option>
+        <?php endforeach; ?>
+    </select>
+    <?php if (!$availableAppointments): ?><p class="form-help">ไม่มีนัดหมายที่เปิดใบงานได้ กรุณาเพิ่มนัดหมายก่อน รวมถึงลูกค้า walk-in</p><?php endif; ?>
+</div>
+<div class="form-group"><label for="createCustomer">ลูกค้า</label><input id="createCustomer" readonly placeholder="แสดงจากนัดหมายที่เลือก"></div>
+<div class="form-group"><label for="createVehicle">รถยนต์</label><input id="createVehicle" readonly placeholder="แสดงจากนัดหมายที่เลือก"></div>
             <!-- MECHANIC -->
 
             <div class="form-group">
@@ -1758,7 +1096,7 @@ unset($_SESSION['repair_job_error']);
 
                 <select
                     name="mechanic_id"
-                    id="createMechanic"
+                    id="createMechanic" required
                 >
 
                     <option value="">
@@ -1834,20 +1172,6 @@ unset($_SESSION['repair_job_error']);
             </div>
 
         </div>
-            <!-- เลขไมล์ -->
-             <div class="form-group">
-                <label>
-                    เลขไมล์
-                </label>
-                <input
-                    type="number"
-                    name="mileage"
-                    min="0"
-                    value="0"
-                >
-            </div>
-
-
             <!-- INITIAL SYMPTOM -->
 
             <div class="form-group">
@@ -1972,8 +1296,6 @@ unset($_SESSION['repair_job_error']);
 
         </div>
 
-
-
         <form
             method="POST"
             id="editRepairForm"
@@ -2060,32 +1382,7 @@ unset($_SESSION['repair_job_error']);
                     สถานะ
                 </label>
 
-                <select
-                    name="status"
-                    id="editStatus"
-                >
-
-                    <option value="waiting">
-                        รอดำเนินการ
-                    </option>
-
-                    <option value="assigned">
-                        ได้รับมอบหมาย
-                    </option>
-
-                    <option value="in_progress">
-                        กำลังดำเนินการ
-                    </option>
-
-                    <option value="completed">
-                        เสร็จสิ้น
-                    </option>
-
-                    <option value="invoiced">
-                        ออกใบแจ้งหนี้แล้ว
-                    </option>
-
-                </select>
+                <input id="editStatus" readonly>
 
             </div>
 
@@ -2137,7 +1434,7 @@ unset($_SESSION['repair_job_error']);
 
                 <textarea
                     name="inspection_result"
-                    id="editInspectionResult"
+                    id="editInspectionResult" readonly
                     rows="4"
                     placeholder="เช่น ตรวจพบผ้าเบรกหน้าสึกประมาณ 80%"
                 ></textarea>
@@ -2156,7 +1453,7 @@ unset($_SESSION['repair_job_error']);
 
                 <textarea
                     name="repair_detail"
-                    id="editRepairDetail"
+                    id="editRepairDetail" readonly
                     rows="4"
                     placeholder="เช่น เปลี่ยนผ้าเบรกหน้าและเจียรจานเบรก"
                 ></textarea>
@@ -2175,7 +1472,7 @@ unset($_SESSION['repair_job_error']);
 
                 <textarea
                     name="additional_problem"
-                    id="editAdditionalProblem"
+                    id="editAdditionalProblem" readonly
                     rows="3"
                 ></textarea>
 
@@ -2193,7 +1490,7 @@ unset($_SESSION['repair_job_error']);
 
                 <textarea
                     name="mechanic_note"
-                    id="editMechanicNote"
+                    id="editMechanicNote" readonly
                     rows="3"
                 ></textarea>
 
@@ -2249,6 +1546,8 @@ unset($_SESSION['repair_job_error']);
 
 
 <script>
+const statusLabels = <?= json_encode($statusLabels, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
+const appointments = <?= json_encode($availableAppointments, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
 
     /*
     |--------------------------------------------------------------------------
@@ -2270,6 +1569,8 @@ unset($_SESSION['repair_job_error']);
 
     function openCreateModal()
     {
+        document.getElementById('createRepairForm').reset();
+        selectAppointment();
         document
             .getElementById('createModal')
             .classList.add('show');
@@ -2301,11 +1602,12 @@ unset($_SESSION['repair_job_error']);
         document.getElementById('editMechanic').value =
             job.mechanic_id || '';
 
+        document.getElementById('editMechanic').querySelectorAll('option').forEach(option => { option.disabled = job.status !== 'waiting' && option.value !== String(job.mechanic_id); });
         document.getElementById('editDueDate').value =
             job.due_date || '';
 
         document.getElementById('editStatus').value =
-            job.status;
+            statusLabels[job.status] || job.status;
 
         document.getElementById('editInitialSymptom').value =
             job.initial_symptom || '';
@@ -2345,75 +1647,12 @@ unset($_SESSION['repair_job_error']);
     |--------------------------------------------------------------------------
     */
 
-    function loadVehicles(type)
-    {
-        const customerSelect =
-            document.getElementById(
-                type === 'create'
-                    ? 'createCustomer'
-                    : 'editCustomer'
-            );
-
-        const vehicleSelect =
-            document.getElementById(
-                type === 'create'
-                    ? 'createVehicle'
-                    : 'editVehicle'
-            );
-
-        const customerId =
-            customerSelect.value;
-
-        vehicleSelect.innerHTML = '';
-
-        if (!customerId)
-        {
-            vehicleSelect.disabled = true;
-
-            vehicleSelect.innerHTML =
-                '<option value="">เลือกลูกค้าก่อน</option>';
-
-            return;
-        }
-
-        const customerVehicles =
-            vehicles.filter(
-                vehicle =>
-                    String(vehicle.customer_id) ===
-                    String(customerId)
-            );
-
-        if (customerVehicles.length === 0)
-        {
-            vehicleSelect.disabled = true;
-
-            vehicleSelect.innerHTML =
-                '<option value="">ลูกค้ารายนี้ยังไม่มีรถ</option>';
-
-            return;
-        }
-
-        vehicleSelect.disabled = false;
-
-        vehicleSelect.innerHTML =
-            '<option value="">เลือกรถ</option>';
-
-        customerVehicles.forEach(vehicle =>
-        {
-            const option =
-                document.createElement('option');
-
-            option.value =
-                vehicle.vehicle_id;
-
-            option.textContent =
-                `${vehicle.license_plate} · ${vehicle.brand} ${vehicle.model}`;
-
-            vehicleSelect.appendChild(option);
-        });
+    function selectAppointment() {
+        const appointment = appointments.find(a => String(a.appointment_id) === document.getElementById('createAppointment').value);
+        document.getElementById('createCustomer').value = appointment ? appointment.customer_name : '';
+        document.getElementById('createVehicle').value = appointment ? `${appointment.license_plate} · ${appointment.brand} ${appointment.model}` : '';
+        document.querySelector('#createRepairForm [name="initial_symptom"]').value = appointment ? (appointment.description || '') : '';
     }
-
-
     /*
     |--------------------------------------------------------------------------
     | OUTSIDE CLICK
@@ -2453,6 +1692,10 @@ unset($_SESSION['repair_job_error']);
 
 </script>
 
+<?php require __DIR__ . "/../../includes/confirmation_modal.php"; ?>
+
+<!-- LOGOUT MODAL: shared confirmation for admin and user pages -->
+<?php require_once __DIR__ . "/../../includes/logout_modal.php"; ?>
 
 </body>
 </html>
