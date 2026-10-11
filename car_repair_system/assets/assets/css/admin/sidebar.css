@@ -1,0 +1,298 @@
+/* =========================================================
+   GLOBAL
+========================================================= */
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: Arial, "Tahoma", sans-serif;
+    background: #f5f7fb;
+    color: #111827;
+}
+
+
+/* =========================================================
+   TOPBAR
+========================================================= */
+
+.topbar {
+    position: fixed;
+
+    top: 0;
+    left: 0;
+
+    width: 100%;
+    height: 74px;
+
+    background: #ffffff;
+
+    border-bottom: 1px solid #e5e7eb;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    padding: 0 28px;
+
+    z-index: 1100;
+}
+
+
+/* ชื่ออู่ */
+
+.brand {
+    font-size: 23px;
+    font-weight: 700;
+    color: #111827;
+}
+
+
+/* =========================================================
+   USER AREA
+========================================================= */
+
+.user-area {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+
+/* ชื่อ + role */
+
+.user-info {
+    display: flex;
+    flex-direction: column;
+
+    text-align: right;
+
+    line-height: 1.25;
+}
+
+.user-info strong {
+    font-size: 15px;
+    color: #111827;
+}
+
+.user-info span {
+    margin-top: 3px;
+
+    font-size: 12px;
+    color: #64748b;
+}
+
+
+/* =========================================================
+   LOGOUT BUTTON
+========================================================= */
+
+.logout-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    height: 40px;
+
+    padding: 0 18px;
+
+    background: #111827;
+    color: #ffffff;
+
+    border-radius: 8px;
+
+    text-decoration: none;
+
+    font-size: 14px;
+    font-weight: 600;
+
+    transition: 0.2s ease;
+}
+
+.logout-btn:hover {
+    background: #1f2937;
+}
+
+
+/* =========================================================
+   SIDEBAR
+========================================================= */
+
+.sidebar {
+    position: fixed;
+
+    top: 74px;
+    left: 0;
+
+    width: 300px;
+    height: calc(100vh - 74px);
+
+    background: #ffffff;
+
+    border-right: 1px solid #e5e7eb;
+
+    z-index: 1000;
+
+    overflow-y: auto;
+}
+
+
+/* =========================================================
+   SIDEBAR MENU
+========================================================= */
+
+.sidebar-menu {
+    padding: 26px 18px;
+}
+
+
+/* =========================================================
+   MENU LINK
+========================================================= */
+
+.sidebar-menu a {
+    display: flex;
+    align-items: center;
+
+    width: 100%;
+    min-height: 48px;
+
+    padding: 0 18px;
+
+    margin-bottom: 8px;
+
+    border-radius: 10px;
+
+    color: #475569;
+
+    text-decoration: none;
+
+    font-size: 16px;
+    font-weight: 500;
+
+    transition: all 0.2s ease;
+}
+
+
+/* ICON */
+
+.menu-icon {
+    width: 28px;
+
+    margin-right: 12px;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    font-size: 18px;
+}
+
+
+/* HOVER */
+
+.sidebar-menu a:hover {
+    background: #f1f5f9;
+    color: #111827;
+}
+
+
+/* =========================================================
+   ACTIVE MENU
+========================================================= */
+
+.sidebar-menu a.active {
+    background: #111827;
+
+    color: #ffffff;
+
+    font-weight: 600;
+
+    position: relative;
+}
+
+
+/* จุดสีส้มด้านขวา */
+
+.sidebar-menu a.active::after {
+    content: "";
+
+    position: absolute;
+
+    right: 12px;
+
+    width: 8px;
+    height: 8px;
+
+    background: #f59e0b;
+
+    border-radius: 50%;
+}
+
+
+/* =========================================================
+   MAIN CONTENT
+========================================================= */
+
+.main-content {
+    margin-left: 300px;
+
+    padding-top: 74px;
+
+    min-height: 100vh;
+
+    background: #f5f7fb;
+}
+
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+
+@media (max-width: 900px) {
+
+    .sidebar {
+        width: 240px;
+    }
+
+    .main-content {
+        margin-left: 240px;
+    }
+
+    .brand {
+        font-size: 18px;
+    }
+
+    .topbar {
+        padding: 0 18px;
+    }
+
+}
+
+
+@media (max-width: 700px) {
+
+    .sidebar {
+        width: 210px;
+    }
+
+    .main-content {
+        margin-left: 210px;
+    }
+
+    .user-info {
+        display: none;
+    }
+
+    .brand {
+        font-size: 16px;
+    }
+
+}

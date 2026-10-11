@@ -1,0 +1,469 @@
+/* Shared garage theme: navy, gold, warm cream, and common icon glyphs. */
+
+@font-face {
+    font-family: "Garage Awesome";
+    src: url("../fonts/fa-solid-900.woff2") format("woff2");
+    font-weight: 900;
+    font-style: normal;
+    font-display: block;
+}
+
+:root {
+    --garage-navy: #102b4e;
+    --garage-navy-light: #23476b;
+    --garage-gold: #e9a800;
+    --garage-paper: #faf9f5;
+    --garage-background: #eeece5;
+    --garage-border: #deded5;
+    --garage-muted: #66717c;
+}
+
+.fas {
+    font-family: "Garage Awesome";
+    font-style: normal;
+    font-weight: 900;
+    line-height: 1;
+    display: inline-block;
+}
+
+.fa-chart-line::before { content: "\f201"; }
+.fa-users::before { content: "\f0c0"; }
+.fa-calendar-check::before { content: "\f274"; }
+.fa-screwdriver-wrench::before { content: "\f7d9"; }
+.fa-file-invoice-dollar::before { content: "\f571"; }
+.fa-user-gear::before { content: "\f4fe"; }
+.fa-user-shield::before { content: "\f505"; }
+.fa-car::before { content: "\f1b9"; }
+.fa-clock-rotate-left::before { content: "\f1da"; }
+
+body {
+    background: var(--garage-background);
+    color: var(--garage-navy);
+    font-family: "Tahoma", "Arial", sans-serif;
+}
+
+/* Top navigation and brand */
+.topbar {
+    background: linear-gradient(110deg, #0b203b, var(--garage-navy-light));
+    border-bottom: 3px solid var(--garage-gold);
+    box-shadow: 0 4px 18px rgba(16, 43, 78, 0.12);
+    gap: 20px;
+}
+
+.topbar .brand {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    color: #fffaf0;
+    font-size: clamp(16px, 1.5vw, 22px);
+    line-height: 1.5;
+}
+
+.brand-logo {
+    width: 48px;
+    height: 48px;
+    object-fit: cover;
+    border-radius: 50%;
+    border: 2px solid #fff5d3;
+    flex-shrink: 0;
+}
+
+.topbar .user-info strong { color: #fffaf0; }
+.topbar .user-info span { color: #c9d4e1; }
+
+.topbar .logout-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    white-space: nowrap;
+}
+
+.topbar .logout-btn:hover {
+    background: var(--garage-gold);
+    border-color: var(--garage-gold);
+    color: var(--garage-navy);
+}
+
+/* Sidebar */
+.sidebar {
+    background-color: var(--garage-navy);
+    background-image:
+        linear-gradient(to bottom, #102b4e 48%, rgba(16, 43, 78, 0.88)),
+        url("../img/surround.jpg");
+    background-size: cover;
+    background-position: center bottom;
+    border-right: 1px solid #223f61;
+}
+
+.sidebar nav a,
+.sidebar .sidebar-link {
+    color: #e6ecf3;
+    border: 1px solid transparent;
+}
+
+.sidebar nav a:hover,
+.sidebar .sidebar-link:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.sidebar nav a.active,
+.sidebar .sidebar-link.active {
+    background: linear-gradient(110deg, #f5be31, var(--garage-gold));
+    color: #142c46;
+    box-shadow: 0 5px 16px rgba(0, 0, 0, 0.14);
+    font-weight: 700;
+}
+
+.sidebar nav a.active::after { background: var(--garage-navy); }
+
+/* Main content and page header */
+.main-content {
+    background-color: var(--garage-background);
+    background-image:
+        linear-gradient(rgba(238, 236, 229, 0.96), rgba(238, 236, 229, 0.96)),
+        url("../img/car1.jpg");
+    background-size: cover;
+    background-position: right bottom;
+    background-attachment: fixed;
+}
+
+/* Keep mechanic dashboard spacing aligned with the other management pages. */
+.main-content > .mechanic-dashboard {
+    padding: 28px 36px;
+    max-width: 1280px;
+    box-sizing: border-box;
+}
+
+.garage-page-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 22px;
+    padding: 26px 28px;
+    margin-bottom: 26px;
+    border: 1px solid var(--garage-border);
+    border-left: 5px solid var(--garage-gold);
+    border-radius: 16px;
+    background-color: var(--garage-paper);
+    background-image:
+        linear-gradient(100deg, #faf9f5 38%, rgba(250, 249, 245, 0.9)),
+        url("../img/car1.jpg");
+    background-size: cover, 460px auto;
+    background-position: center, right 52%;
+    background-repeat: no-repeat;
+    box-shadow: 0 5px 18px rgba(43, 47, 47, 0.04);
+}
+
+.garage-page-header > div:first-child {
+    position: relative;
+    padding-left: 76px;
+    min-width: 0;
+}
+
+.garage-heading-icon {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 15px;
+    background: linear-gradient(135deg, var(--garage-navy-light), var(--garage-navy));
+    color: #f4c34d;
+    font-size: 24px;
+    box-shadow: 0 5px 12px rgba(16, 43, 78, 0.15);
+}
+
+.garage-page-header h1 {
+    margin: 0 0 7px;
+    font-size: clamp(22px, 2vw, 29px);
+    line-height: 1.45;
+    color: var(--garage-navy);
+}
+
+.garage-page-header p {
+    margin: 0;
+    color: #5e6974;
+    font-size: 18px;
+    line-height: 1.7;
+}
+
+/* Cards, tables, and forms */
+.stat-card,
+.summary-card,
+.customer-card,
+.appointment-card,
+.repair-card,
+.technician-card,
+.dashboard-card,
+.job-notification-section,
+.history-job,
+.table-container,
+.users-table-wrapper,
+.financial-table-wrapper {
+    background-color: var(--garage-paper);
+    border-color: var(--garage-border);
+    box-shadow: 0 4px 16px rgba(45, 47, 40, 0.035);
+}
+
+.notification-section,
+.history-section,
+.notification-card,
+.history-card {
+    background-color: var(--garage-paper);
+    border-color: var(--garage-border);
+}
+
+.section-more { background: var(--garage-navy); }
+.main-content table { background: var(--garage-paper); }
+
+.main-content thead th {
+    background: #e9edf0;
+    color: var(--garage-navy);
+    border-bottom-color: #d8dfe3;
+}
+
+.main-content tbody td { border-bottom-color: #e5e4dc; }
+.main-content tbody tr:hover { background: #f5f0e1; }
+
+.main-content input:not([type="checkbox"]):not([type="radio"]),
+.main-content select,
+.main-content textarea {
+    border-color: #d4d6d4;
+}
+
+.main-content input:focus,
+.main-content select:focus,
+.main-content textarea:focus {
+    outline-color: var(--garage-gold);
+    border-color: #b58212;
+}
+
+.garage-page-header button,
+.garage-page-header .add-btn {
+    background: var(--garage-navy);
+    color: white;
+    border: 1px solid var(--garage-navy);
+    box-shadow: 0 4px 10px rgba(16, 43, 78, 0.1);
+    flex-shrink: 0;
+}
+
+.garage-page-header button:hover,
+.garage-page-header .add-btn:hover { background: var(--garage-navy-light); }
+
+/* Login screen */
+.login-container {
+    padding: 40px 24px;
+    /* A cream overlay keeps the background image subtle behind the form. */
+    background:
+        linear-gradient(rgba(238, 236, 229, 0.75), rgba(238, 236, 229, 0.75)),
+        url("../img/background.jpg") center / cover no-repeat;
+}
+
+.login-shell {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    width: min(1100px, 100%);
+    min-height: 650px;
+    border: 1px solid #d7d8d1;
+    border-radius: 24px;
+    overflow: hidden;
+    background: var(--garage-paper);
+    box-shadow: 0 24px 65px rgba(16, 43, 78, 0.15);
+}
+
+.login-art {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 36px;
+    overflow: hidden;
+    background:
+        linear-gradient(160deg, rgba(16, 43, 78, 0.2), rgba(16, 43, 78, 0.65)),
+        url("../img/car1.jpg") center / cover;
+}
+
+.login-art::after {
+    content: "";
+    position: absolute;
+    right: -110px;
+    bottom: -100px;
+    width: 180px;
+    height: 650px;
+    transform: rotate(35deg);
+    background: rgba(16, 43, 78, 0.85);
+    border-left: 15px solid var(--garage-gold);
+    pointer-events: none;
+}
+
+.login-art-logo {
+    width: 110px;
+    height: 110px;
+    border-radius: 50%;
+    border: 4px solid #faf9f5;
+    box-shadow: 0 6px 25px rgba(0, 0, 0, 0.15);
+}
+
+.login-art-banner {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin-bottom: 24px;
+    border-radius: 8px;
+    border: 3px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 4px 12px rgba(16, 43, 78, 0.1);
+}
+
+.login-shell .login-box {
+    width: 100%;
+    max-width: none;
+    align-self: center;
+    padding: 48px 40px;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.login-box h1 {
+    color: var(--garage-navy);
+    font-size: 28px;
+    line-height: 1.55;
+    text-align: left;
+}
+
+.login-subtitle {
+    text-align: left;
+    color: var(--garage-muted);
+    line-height: 1.7;
+    margin-bottom: 36px;
+}
+
+.login-box input { background: #fffefa; border-color: #d5d9d9; }
+
+.login-box input:focus {
+    border-color: #b58212;
+    box-shadow: 0 0 0 3px rgba(233, 168, 0, 0.13);
+}
+
+.login-button {
+    background: var(--garage-navy);
+    border-bottom: 3px solid var(--garage-gold);
+    margin-top: 8px;
+}
+
+.login-button:hover { background: var(--garage-navy-light); }
+
+/* Responsive adjustments */
+.financial-summary .summary-card strong {
+    white-space: nowrap;
+    font-size: clamp(20px, 1.65vw, 26px);
+}
+
+@media (max-width: 1500px) {
+    .financial-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 1100px) {
+    .garage-page-header { flex-wrap: wrap; }
+}
+
+@media (max-width: 700px) {
+    .financial-summary { grid-template-columns: 1fr; }
+
+    .topbar {
+        padding: 0 12px;
+        gap: 8px;
+    }
+
+    .topbar .brand {
+        gap: 8px;
+        font-size: 14px;
+    }
+
+    .brand-logo { width: 36px; height: 36px; }
+    .topbar .user-info { display: none; }
+
+    .topbar .logout-btn {
+        padding: 0 10px;
+        font-size: 12px;
+    }
+
+    .sidebar {
+        position: relative;
+        top: 74px;
+        width: 100%;
+        height: auto;
+        padding: 10px;
+    }
+
+    .sidebar nav,
+    .sidebar .sidebar-menu {
+        display: flex;
+        flex-direction: row;
+        overflow-x: auto;
+        gap: 8px;
+        padding: 0;
+    }
+
+    .sidebar nav a {
+        width: auto;
+        min-width: max-content;
+        margin-bottom: 0;
+        min-height: 44px;
+        padding: 0 14px;
+        font-size: 14px;
+    }
+
+    .main-content {
+        margin-left: 0;
+        padding: 94px 16px 32px;
+        min-width: 0;
+    }
+
+    .main-content > section { padding: 0; }
+    .main-content > .mechanic-dashboard { padding: 0; }
+    .sidebar nav a.active::after { display: none; }
+
+    .garage-page-header {
+        padding: 20px 16px;
+        gap: 16px;
+    }
+
+    .garage-page-header > div:first-child { padding-left: 58px; }
+
+    .garage-heading-icon {
+        width: 44px;
+        height: 44px;
+        font-size: 20px;
+        border-radius: 12px;
+    }
+
+    .garage-page-header h1 { font-size: 21px; }
+    .login-container { padding: 20px 14px; }
+    .login-shell { grid-template-columns: 1fr; min-height: auto; }
+
+    .login-art {
+        min-height: 230px;
+        padding: 22px;
+        flex-direction: row;
+        align-items: flex-end;
+        gap: 22px;
+        background-position: center 42%;
+    }
+
+    .login-art-logo {
+        width: 74px;
+        height: 74px;
+        align-self: flex-start;
+    }
+
+    .login-shell .login-box { padding: 28px 24px; }
+}

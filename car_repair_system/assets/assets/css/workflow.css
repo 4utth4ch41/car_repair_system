@@ -1,0 +1,59 @@
+.status-badge.status-awaiting_review,
+.status-badge.status-attended {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1d4ed8;
+}
+.status-badge.status-no_show {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    color: #9a3412;
+}
+.repair-actions,
+.appointment-actions {
+    flex-wrap: wrap;
+}
+.appointment-actions form {
+    margin: 0;
+}
+.workflow-history,
+.workflow-review {
+    width: 100%;
+    min-width: 0;
+    flex-basis: 100%;
+    margin-top: 12px;
+    padding: 14px 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 14px;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+}
+.workflow-history summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: #334155;
+}
+.workflow-event {
+    padding: 10px 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+.workflow-event:last-child { border-bottom: 0; }
+.workflow-event small { color: #64748b; }
+.workflow-event p,
+.workflow-review p { margin: 6px 0; }
+.workflow-review form { margin-top: 12px; }
+.workflow-review textarea {
+    display: block;
+    width: 100%;
+    margin: 6px 0 10px;
+    padding: 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font: inherit;
+    resize: vertical;
+}
+.workflow-review button { padding: 8px 0; font-size: 14px; }
+.workflow-notice { margin: 16px 0; color: #1d4ed8; font-size: 14px; }
+.workflow-filter { display: flex; gap: 14px; margin-bottom: 18px; font-size: 14px; }
