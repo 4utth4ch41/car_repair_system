@@ -1,0 +1,108 @@
+/* =====================================================
+   CONFIRMATION MODAL
+   ===================================================== */
+
+.confirmation-modal {
+    width: min(480px, calc(100% - 32px));
+    max-height: calc(100dvh - 48px);
+    margin: auto;
+    padding: 28px;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    background: white;
+    color: #0f172a;
+    box-sizing: border-box;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(15, 23, 42, 0.2);
+}
+
+.confirmation-modal::backdrop {
+    background: rgba(15, 23, 42, 0.55);
+}
+
+.confirmation-modal h2 {
+    margin: 0 0 12px;
+    font-size: 22px;
+}
+
+.confirmation-modal p {
+    color: #64748b;
+    line-height: 1.6;
+}
+
+.confirmation-modal dl {
+    padding: 16px;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.confirmation-modal dt {
+    margin-top: 12px;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.confirmation-modal dt:first-child {
+    margin-top: 0;
+}
+
+.confirmation-modal dd {
+    margin: 4px 0 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.confirmation-modal label {
+    display: block;
+    margin-bottom: 8px;
+}
+
+.confirmation-modal textarea {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    box-sizing: border-box;
+    font: inherit;
+    resize: vertical;
+}
+
+.confirmation-actions {
+    display: flex;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 24px;
+}
+
+.confirmation-actions button {
+    padding: 11px 16px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: white;
+    color: #334155;
+    font: inherit;
+    cursor: pointer;
+}
+
+#confirmationSubmit {
+    background: #059669;
+    border-color: #059669;
+    color: white;
+}
+
+.confirmation-modal.danger #confirmationSubmit {
+    background: #dc2626;
+    border-color: #dc2626;
+}
+
+.confirmation-actions button:focus-visible,
+.confirmation-modal textarea:focus-visible {
+    outline: 3px solid #93c5fd;
+    outline-offset: 3px;
+}
+
+.confirmation-actions button:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}

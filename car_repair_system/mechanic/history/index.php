@@ -1,4 +1,10 @@
 <?php
+/*
+ * ภาพรวมการทำงานกับข้อมูลของไฟล์นี้
+ * ประวัติเลือกเฉพาะใบงานของช่างที่เข้าสู่ระบบและ status = completed
+ * เรียงงานจบล่าสุดก่อนด้วย end_time แล้วใช้ updated_at / created_at เป็นลำดับรอง
+ * อะไหล่ดึงตามรหัสใบงานที่ได้จากชุดประวัติเท่านั้น แล้วจัดกลุ่มใน PHP เพื่อนำไปแสดง
+ */
 
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../includes/auth.php';
@@ -58,6 +64,12 @@ $userId = (int)$_SESSION['user_id'];
 
 if ($db instanceof PDO) {
 
+    /*
+     * ตรงนี้อ่านข้อมูลจาก mechanics (ช่าง)
+     * เงื่อนไข WHERE ที่ใช้จริง: user_id = ? 
+     * เอาผลลัพธ์ไม่เกิน 1 แถว ตามลำดับที่ query กำหนด
+     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+     */
     $stmt = $db->prepare("
         SELECT
             mechanic_id,
@@ -68,14 +80,26 @@ if ($db instanceof PDO) {
         LIMIT 1
     ");
 
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
     $stmt->execute([
         $userId
     ]);
 
+    /*
+     * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+     */
     $mechanic = $stmt->fetch(PDO::FETCH_ASSOC);
 
 } else {
 
+    /*
+     * ตรงนี้อ่านข้อมูลจาก mechanics (ช่าง)
+     * เงื่อนไข WHERE ที่ใช้จริง: user_id = ? 
+     * เอาผลลัพธ์ไม่เกิน 1 แถว ตามลำดับที่ query กำหนด
+     * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+     */
     $stmt = $db->prepare("
         SELECT
             mechanic_id,
@@ -86,15 +110,24 @@ if ($db instanceof PDO) {
         LIMIT 1
     ");
 
+    /*
+     * MySQLi ผูกค่าตามลำดับ ? โดย i = จำนวนเต็ม, s = ข้อความ, d = ทศนิยม
+     */
     $stmt->bind_param(
         "i",
         $userId
     );
 
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
     $stmt->execute();
 
     $result = $stmt->get_result();
 
+    /*
+     * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+     */
     $mechanic = $result->fetch_assoc();
 }
 
@@ -116,6 +149,14 @@ $mechanicId = (int)$mechanic['mechanic_id'];
 |
 */
 
+/*
+ * ตรงนี้อ่านข้อมูลจาก repair_jobs (ใบงานซ่อม), customers (ลูกค้า), vehicles (รถยนต์)
+ * JOIN / INNER JOIN เอาเฉพาะแถวที่จับคู่ได้ตาม ON เช่น รหัสลูกค้าหรือรหัสรถตรงกัน
+ * เงื่อนไข WHERE ที่ใช้จริง: r.mechanic_id = ? AND r.status = 'completed' 
+ * เรียงตาม: r.end_time DESC, r.updated_at DESC, r.created_at DESC
+ * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+ * ? / :ชื่อ คือช่องรับค่า ส่งค่าจริงผ่าน execute หรือ bind_param แยกจากข้อความ SQL
+ */
 $sql = "
 
     SELECT
@@ -164,27 +205,48 @@ $jobs = [];
 
 if ($db instanceof PDO) {
 
+    /*
+     * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+     */
     $stmt = $db->prepare($sql);
 
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
     $stmt->execute([
         $mechanicId
     ]);
 
+    /*
+     * รับผลลัพธ์หลายแถวมาเป็น array เพื่อใช้วนแสดงผลหรือจัดกลุ่มต่อใน PHP
+     */
     $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 } else {
 
+    /*
+     * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+     */
     $stmt = $db->prepare($sql);
 
+    /*
+     * MySQLi ผูกค่าตามลำดับ ? โดย i = จำนวนเต็ม, s = ข้อความ, d = ทศนิยม
+     */
     $stmt->bind_param(
         "i",
         $mechanicId
     );
 
+    /*
+     * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+     */
     $stmt->execute();
 
     $result = $stmt->get_result();
 
+    /*
+     * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+     */
     while ($row = $result->fetch_assoc()) {
 
         $jobs[] = $row;
@@ -224,6 +286,13 @@ if (!empty($jobs)) {
 
     if ($db instanceof PDO) {
 
+        /*
+         * ตรงนี้อ่านข้อมูลจาก parts_used (อะไหล่ที่ใช้ในแต่ละใบงาน)
+         * เงื่อนไข WHERE ที่ใช้จริง: repair_order_id IN ($placeholders) 
+         * IN คือรับค่าที่อยู่ในชุดที่ระบุ ถ้าเป็นชุด ? ให้ส่งค่าตามจำนวนและลำดับ placeholder
+         * เรียงตาม: part_id ASC
+         * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+         */
         $sqlParts = "
 
             SELECT
@@ -250,16 +319,25 @@ if (!empty($jobs)) {
         ";
 
 
+        /*
+         * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+         */
         $stmt = $db->prepare(
             $sqlParts
         );
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $stmt->execute(
             $jobIds
         );
 
 
         while (
+            /*
+             * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+             */
             $part = $stmt->fetch(PDO::FETCH_ASSOC)
         ) {
 
@@ -270,6 +348,13 @@ if (!empty($jobs)) {
 
     } else {
 
+        /*
+         * ตรงนี้อ่านข้อมูลจาก parts_used (อะไหล่ที่ใช้ในแต่ละใบงาน)
+         * เงื่อนไข WHERE ที่ใช้จริง: repair_order_id IN ($placeholders) 
+         * IN คือรับค่าที่อยู่ในชุดที่ระบุ ถ้าเป็นชุด ? ให้ส่งค่าตามจำนวนและลำดับ placeholder
+         * เรียงตาม: part_id ASC
+         * ASC คือค่าน้อย/วันเก่าก่อน DESC คือค่ามาก/วันใหม่ก่อน ถ้าค่าแรกเท่ากันค่อยดูคอลัมน์ถัดไป
+         */
         $sqlParts = "
 
             SELECT
@@ -296,6 +381,9 @@ if (!empty($jobs)) {
         ";
 
 
+        /*
+         * เตรียม statement ก่อนส่งค่าจริง แยกข้อมูลออกจากโครง SQL ช่วยป้องกัน SQL injection ในค่าที่ bind
+         */
         $stmt = $db->prepare(
             $sqlParts
         );
@@ -324,12 +412,18 @@ if (!empty($jobs)) {
         );
 
 
+        /*
+         * สั่งรัน statement ที่เตรียมไว้ ค่าที่ส่งต้องตรงกับชื่อหรือลำดับ placeholder ใน SQL
+         */
         $stmt->execute();
 
         $result = $stmt->get_result();
 
 
         while (
+            /*
+             * อ่านผลทีละแถว ถ้าไม่พบข้อมูลจะได้ false จึงต้องเช็กก่อนนำค่าไปใช้
+             */
             $part = $result->fetch_assoc()
         ) {
 
@@ -383,7 +477,7 @@ foreach ($jobs as $job) {
     >
 
     <title>
-        ประวัติการทำงาน | P.Chalermchai Car Service
+        ประวัติการทำงาน | ป.เฉลิมชัย คาร์แคร์ เซอร์วิส
     </title>
 
 
@@ -426,6 +520,10 @@ foreach ($jobs as $job) {
         href="/car_repair_system/assets/css/user/history.css"
     >
 
+    <!-- GARAGE THEME: shared navy, gold and warm cream styles -->
+    <link rel="stylesheet" href="../../assets/css/garage-theme.css">
+
+
 </head>
 
 
@@ -439,7 +537,9 @@ foreach ($jobs as $job) {
 <header class="topbar">
 
     <div class="brand">
-        P.Chalermchai Car Service
+            <!-- BRAND LOGO: original garage identity -->
+            <img class="brand-logo" src="../../assets/img/logo.jpg" alt="" width="48" height="48">
+        ป.เฉลิมชัย คาร์แคร์ เซอร์วิส
     </div>
 
 
@@ -548,9 +648,14 @@ foreach ($jobs as $job) {
              PAGE HEADER
         ================================================== -->
 
-        <div class="page-header">
+        <div class="page-header garage-page-header">
 
             <div>
+
+                <!-- PAGE ICON: decorative icon for this page -->
+                <span class="garage-heading-icon" aria-hidden="true">
+                    <i class="fas fa-clock-rotate-left"></i>
+                </span>
 
                 <h1>
                     ประวัติการทำงาน
@@ -1274,6 +1379,9 @@ document.addEventListener(
 
 </script>
 
+
+<!-- LOGOUT MODAL: shared confirmation for admin and user pages -->
+<?php require_once __DIR__ . "/../../includes/logout_modal.php"; ?>
 
 </body>
 
