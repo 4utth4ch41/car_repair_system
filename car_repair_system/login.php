@@ -104,13 +104,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     <link rel="stylesheet"
           href="assets/css/garage-theme.css">
 
+    <link rel="stylesheet" href="assets/css/public-tracking.css">
+
     <!-- GARAGE THEME: สีกรมท่า เหลืองเข้ม และครีมอมเทา -->
 
 </head>
 
 <body>
 
-<div class="login-container">
+<div class="login-container public-entry">
+
+    <nav class="public-entry-nav" aria-label="บริการลูกค้า">
+        <a class="public-entry-link" href="track.php">ติดตามสถานะรถยนต์ของคุณ</a>
+    </nav>
 
     <!-- LOGIN ART: ภาพรถและโลโก้ของอู่ -->
 
